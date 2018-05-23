@@ -1,32 +1,24 @@
-# Prerequisites
-*.d
+*.i
+*.ii
+*.gpu
+*.ptx
+*.cubin
+*.fatbin
 
-# Compiled Object files
-*.slo
-*.lo
+# object file
 *.o
-*.obj
 
-# Precompiled Headers
-*.gch
-*.pch
+# query file
+*.g
+*.data
+*.my
+*.query
 
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
+# answer file
+*.txt
 
-# Fortran module files
-*.mod
-*.smod
+# executables
+run.exe
+*.exe 
+*.bin
 
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
