@@ -1111,24 +1111,133 @@ table_kernel(unsigned* d_candidate, unsigned* d_result, unsigned result_row_num,
 	}
 }
 
+__global__ void
+join_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsigned result_row_num, unsigned result_col_num, unsigned upos, unsigned vpos, unsigned array_num)
+{
+	int t = blockIdx.x * blockDim.x + threadIdx.x;
+	int group = t / 32;
+	int idx = t % 32;
+	if(group >= result_row_num)
+	{
+		return; 
+	}
+	
+	unsigned mu = d_result[group*result_col_num+upos];
+	unsigned mv = d_result[group*result_col_num+vpos];
+	//find mu in d_array using a warp
+	unsigned size = array_num;
+	unsigned loop = size / 32;
+	size = size % 32;
+
+	unsigned valid_mu = 0;
+	unsigned base = 0;
+	for(int j = 0; j < loop; ++j, base+=32)
+	{
+		unsigned cand = d_candidate[idx+base];
+		if(cand == mu)
+		{
+			valid_mu = 1;
+		}
+		if(__any(valid_mu) == 1)
+		{
+			break;
+		}
+	}
+	if(valid_mu == 0 && idx < size)
+	{
+		unsigned cand = d_candidate[idx+base];
+		if(cand == mu)
+		{
+			valid_mu = 1;
+		}
+	}
+	//find the index of element mu
+	unsigned idx_mu = __ballot(valid_mu);   //only one 1 in this situation
+	//TODO: get the idx for each thread
+	//n&(-n) to get the maxium num(which is 2's power), which can divide n (just like 10000..)
+	//it is ok to add a log2() to get the idx
+	valid_mu = __any(valid_mu);
+	if(valid_mu == 0)
+	{
+		d_count[group] = 0;
+		return; 
+	}
+
+	//find mv in adjs of mu using a warp
+	unsigned valid_mv = 0;
+	base = d_candidate[array_num+idx_mu];
+	size = d_candidate[array_num+idx_mu+1] - base;
+	loop = size / 32;
+	size = size % 32;
+	base = base + 2*array_num+1;
+	for(int j = 0; j < loop; ++j, base+=32)
+	{
+		unsigned cand = d_candidate[idx+base];
+		if(cand == mv)
+		{
+			valid_mv = 1;
+		}
+		if(__any(valid_mv) == 1)
+		{
+			break;
+		}
+	}
+	if(valid_mv == 0 && idx < size)
+	{
+		unsigned cand = d_candidate[idx+base];
+		if(cand == mv)
+		{
+			valid_mv = 1;
+		}
+	}
+	valid_mv = __any(valid_mv);
+
+	if(idx == 0)
+	{
+		d_count[group] = valid_mv;
+	}
+}
+
+__global__ void
+link_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_result_new, unsigned* d_count, unsigned result_row_num, unsigned result_col_num, unsigned upos, unsigned vpos, unsigned array_num)
+{
+
+}
+
 void 
 Match::kernel_join(unsigned* d_candidate, unsigned*& d_result, unsigned& result_row_num, unsigned& result_col_num, unsigned upos, unsigned vpos, unsigned array_num)
 {
 	//follow the two-step output scheme to write the merged results
 	unsigned* d_count = NULL;
-	checkCudaErrors(cudaMalloc(&d_count, sizeof(unsigned)*result_row_num));
+	checkCudaErrors(cudaMalloc(&d_count, sizeof(unsigned)*(result_row_num+1)));
 	join_kernel<<<(result_row_num*32+1023)/1024,1024>>>(d_candidate, d_result, d_count, result_row_num, result_col_num, upos, vpos, array_num);
 	cudaDeviceSynchronize();
 	
 	//TODO: prefix sum to find position
+	thrust::device_ptr<unsigned> dev_ptr(d_count);
+	unsigned sum;
+	thrust::exclusive_scan(dev_ptr, dev_ptr+result_row_num+1, dev_ptr);
+	checkCudaErrors(cudaGetLastError());
+	cudaMemcpy(&sum, d_count+result_row_num, sizeof(unsigned), cudaMemcpyDeviceToHost);
+	if(sum == 0)
+	{
+		checkCudaErrors(cudaFree(d_count));
+		checkCudaErrors(cudaFree(d_result));
+		d_result = NULL;
+		result_row_num = 0;
+		return;
+	}
 
 	unsigned* d_result_new = NULL;
-	link_kernel<<<(result_row_num*32+1023)/1024,1024>>>(d_candidate, d_result, d_result_new, result_row_num, result_col_num, upos, vpos, array_num);
+	checkCudaErrors(cudaMalloc(&d_result_new, sizeof(unsigned)*sum*result_col_num));
+	link_kernel<<<(result_row_num*32+1023)/1024,1024>>>(d_candidate, d_result, d_result_new, d_count, result_row_num, result_col_num, upos, vpos, array_num);
 	cudaDeviceSynchronize();
+	checkCudaErrors(cudaFree(d_count));
 
-	//TODO: assign new d_result and two table num
 	checkCudaErrors(cudaFree(d_result));
 	d_result = d_result_new;
+	//NOTICE: result_col_num not changes in this case
+	result_row_num = sum;
 	//TODO: release resources
 }
 

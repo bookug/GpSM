@@ -52,6 +52,9 @@
 
 #define checkCudaErrors(val) check( (val), #val, __FILE__, __LINE__)
 
+//Shared Memory and Memory Banks:  
+//https://www.cnblogs.com/1024incn/p/4605502.html
+
 template<typename T>
 void check(T err, const char* const func, const char* const file, const int line) {
   if (err != cudaSuccess) {
