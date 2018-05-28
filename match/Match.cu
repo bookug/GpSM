@@ -1151,11 +1151,19 @@ join_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsign
 			valid_mu = 1;
 		}
 	}
+	
 	//find the index of element mu
-	unsigned idx_mu = __ballot(valid_mu);   //only one 1 in this situation
-	//TODO: get the idx for each thread
+	int idx_mu = __ballot(valid_mu);   //only one 1 in this situation
+	//get the idx for each thread
 	//n&(-n) to get the maxium num(which is 2's power), which can divide n (just like 10000..)
-	//it is ok to add a log2() to get the idx
+	//it is ok to add a log2() function to get the idx
+	idx_mu = idx_mu & (-idx_mu);
+	//NOTICE: log() is a function defined in host stack, which can not be used in cuda code
+	/*idx_mu = log(idx_mu)/log(2.0);*/
+	//There are two types of log2() in cuda math functions: float and double
+	//not precise but faster:     http://blog.sina.com.cn/s/blog_4c88d09a0100l4mo.html
+	idx_mu = log2((double)idx_mu);
+
 	valid_mu = __any(valid_mu);
 	if(valid_mu == 0)
 	{
@@ -1199,9 +1207,19 @@ join_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsign
 }
 
 __global__ void
-link_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_result_new, unsigned* d_count, unsigned result_row_num, unsigned result_col_num, unsigned upos, unsigned vpos, unsigned array_num)
+link_kernel(unsigned* d_result, unsigned* d_result_new, unsigned* d_count, unsigned result_row_num, unsigned result_col_num)
 {
+	int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	if(idx >= result_row_num)
+	{
+		return; 
+	}
 
+	if(d_count[idx] < d_count[idx+1])  //this is a valid result
+	{
+		//write d_result[idx] to d_result_new[d_count[idx]]
+		memcpy(d_result_new+d_count[idx]*result_col_num, d_result+idx*result_col_num, sizeof(unsigned)*result_col_num);
+	}
 }
 
 void 
@@ -1213,7 +1231,7 @@ Match::kernel_join(unsigned* d_candidate, unsigned*& d_result, unsigned& result_
 	join_kernel<<<(result_row_num*32+1023)/1024,1024>>>(d_candidate, d_result, d_count, result_row_num, result_col_num, upos, vpos, array_num);
 	cudaDeviceSynchronize();
 	
-	//TODO: prefix sum to find position
+	//prefix sum to find position
 	thrust::device_ptr<unsigned> dev_ptr(d_count);
 	unsigned sum;
 	thrust::exclusive_scan(dev_ptr, dev_ptr+result_row_num+1, dev_ptr);
@@ -1230,7 +1248,8 @@ Match::kernel_join(unsigned* d_candidate, unsigned*& d_result, unsigned& result_
 
 	unsigned* d_result_new = NULL;
 	checkCudaErrors(cudaMalloc(&d_result_new, sizeof(unsigned)*sum*result_col_num));
-	link_kernel<<<(result_row_num*32+1023)/1024,1024>>>(d_candidate, d_result, d_result_new, d_count, result_row_num, result_col_num, upos, vpos, array_num);
+	//just one thread for each row is ok
+	link_kernel<<<(result_row_num+1023)/1024,1024>>>(d_result, d_result_new, d_count, result_row_num, result_col_num);
 	cudaDeviceSynchronize();
 	checkCudaErrors(cudaFree(d_count));
 
@@ -1238,7 +1257,6 @@ Match::kernel_join(unsigned* d_candidate, unsigned*& d_result, unsigned& result_
 	d_result = d_result_new;
 	//NOTICE: result_col_num not changes in this case
 	result_row_num = sum;
-	//TODO: release resources
 }
 
 bool
@@ -1332,7 +1350,7 @@ Match::JoinCandidateEdges(unsigned** d_candidate_edge, unsigned* d_candidate_edg
 		if(expand_mode)
 		{
 			//what should do if only v is connected?
-			expand_kernel();
+			/*expand_kernel();*/
 			//TODO: we need to add this mapping
 			/*this->add_mapping(this->edge_to[minx]);*/
 		}
