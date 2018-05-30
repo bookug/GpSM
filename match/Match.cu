@@ -1029,8 +1029,16 @@ Match::kernel_examine(int u, int v, unsigned d_array_num, bool* d_candidate_set,
 }
 
 bool
-Match::FindCandidateEdges(bool* d_candidate_set, unsigned**& d_candidate_edge, unsigned*& d_candidate_edge_num)
+Match::FindCandidateEdges(bool* d_candidate_set, unsigned**& d_candidate_edge, unsigned*& d_candidate_edge_num, bool v2u)
 {
+	unsigned* edge_from = this->edge_from;
+	unsigned* edge_to = this->edge_to;
+	if(v2u)
+	{
+		edge_from = this->edge_to;
+		edge_to = this->edge_from;
+	}
+
 	checkCudaErrors(cudaMalloc(&d_candidate_edge, sizeof(unsigned*)*this->edge_num));
 	checkCudaErrors(cudaMalloc(&d_candidate_edge_num, sizeof(unsigned)*this->edge_num));
 	unsigned* h_candidate_edge_num = new unsigned[this->edge_num];
@@ -1039,8 +1047,8 @@ Match::FindCandidateEdges(bool* d_candidate_set, unsigned**& d_candidate_edge, u
 
 	for(int i = 0; i < this->edge_num; ++i)
 	{
-		unsigned u = this->edge_from[i];
-		unsigned v = this->edge_to[i];
+		unsigned u = edge_from[i];
+		unsigned v = edge_to[i];
 		unsigned* d_array = NULL;
 		unsigned d_array_num = 0;
 		kernel_collect(d_candidate_set+dsize*u, d_array, d_array_num);
@@ -1207,7 +1215,7 @@ join_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsign
 }
 
 __global__ void
-link_kernel(unsigned* d_result, unsigned* d_result_new, unsigned* d_count, unsigned result_row_num, unsigned result_col_num)
+filter_kernel(unsigned* d_result, unsigned* d_result_new, unsigned* d_count, unsigned result_row_num, unsigned result_col_num)
 {
 	int idx = blockIdx.x * blockDim.x + threadIdx.x;
 	if(idx >= result_row_num)
@@ -1249,7 +1257,7 @@ Match::kernel_join(unsigned* d_candidate, unsigned*& d_result, unsigned& result_
 	unsigned* d_result_new = NULL;
 	checkCudaErrors(cudaMalloc(&d_result_new, sizeof(unsigned)*sum*result_col_num));
 	//just one thread for each row is ok
-	link_kernel<<<(result_row_num+1023)/1024,1024>>>(d_result, d_result_new, d_count, result_row_num, result_col_num);
+	filter_kernel<<<(result_row_num+1023)/1024,1024>>>(d_result, d_result_new, d_count, result_row_num, result_col_num);
 	cudaDeviceSynchronize();
 	checkCudaErrors(cudaFree(d_count));
 
@@ -1259,8 +1267,168 @@ Match::kernel_join(unsigned* d_candidate, unsigned*& d_result, unsigned& result_
 	result_row_num = sum;
 }
 
+__global__ void
+expand_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsigned result_row_num, unsigned result_col_num, unsigned pos, unsigned array_num)
+{
+	int t = blockIdx.x * blockDim.x + threadIdx.x;
+	int group = t / 32;
+	int idx = t % 32;
+	if(group >= result_row_num)
+	{
+		return; 
+	}
+	
+	unsigned mu = d_result[group*result_col_num+pos];
+	//find mu in d_array using a warp
+	unsigned size = array_num;
+	unsigned loop = size / 32;
+	size = size % 32;
+
+	unsigned valid_mu = 0;
+	unsigned base = 0;
+	for(int j = 0; j < loop; ++j, base+=32)
+	{
+		unsigned cand = d_candidate[idx+base];
+		if(cand == mu)
+		{
+			valid_mu = 1;
+		}
+		if(__any(valid_mu) == 1)
+		{
+			break;
+		}
+	}
+	if(valid_mu == 0 && idx < size)
+	{
+		unsigned cand = d_candidate[idx+base];
+		if(cand == mu)
+		{
+			valid_mu = 1;
+		}
+	}
+	
+	if(__any(valid_mu) == 0)
+	{
+		d_count[group] = 0;
+		return; 
+	}
+	//find the index of element mu
+	int idx_mu = __ballot(valid_mu);   //only one 1 in this situation
+	idx_mu = idx_mu & (-idx_mu);
+	idx_mu = log2((double)idx_mu);
+	d_count[group] = d_candidate[array_num+idx_mu+1] - d_candidate[array_num+idx_mu];
+}
+
+__global__ void
+link_kernel(unsigned* d_result, unsigned* d_result_new, unsigned* d_count, unsigned result_row_num, unsigned result_col_num, unsigned* d_candidate, unsigned pos, unsigned array_num)
+{
+	int t = blockIdx.x * blockDim.x + threadIdx.x;
+	int group = t / 32;
+	int idx = t % 32;
+	if(group >= result_row_num)
+	{
+		return; 
+	}
+	if(d_count[group] == d_count[group+1])  //this is a valid result
+	{
+		return; 
+	}
+	
+	unsigned mu = d_result[group*result_col_num+pos];
+	//find mu in d_array using a warp
+	unsigned size = array_num;
+	unsigned loop = size / 32;
+	size = size % 32;
+
+	unsigned valid_mu = 0;
+	unsigned base = 0;
+	for(int j = 0; j < loop; ++j, base+=32)
+	{
+		unsigned cand = d_candidate[idx+base];
+		if(cand == mu)
+		{
+			valid_mu = 1;
+		}
+		if(__any(valid_mu) == 1)
+		{
+			break;
+		}
+	}
+	if(valid_mu == 0 && idx < size)
+	{
+		unsigned cand = d_candidate[idx+base];
+		if(cand == mu)
+		{
+			valid_mu = 1;
+		}
+	}
+	
+	int idx_mu = __ballot(valid_mu);   //only one 1 in this situation
+	idx_mu = idx_mu & (-idx_mu);
+	idx_mu = log2((double)idx_mu);
+
+	//find mv in adjs of mu using a warp
+	base = d_candidate[array_num+idx_mu];
+	size = d_candidate[array_num+idx_mu+1] - base;
+	loop = size / 32;
+	size = size % 32;
+	base = base + 2*array_num+1;
+	unsigned write_base = d_count[group] * (result_col_num+1);
+	for(int j = 0; j < loop; ++j, base+=32)
+	{
+		unsigned cand = d_candidate[idx+base];
+		memcpy(d_result_new+write_base+idx*(result_col_num+1), d_result+group*result_col_num, sizeof(unsigned)*result_col_num);
+		d_result_new[write_base+idx*(result_col_num+1)+result_col_num] = cand;
+		write_base += 32*(result_col_num+1);
+	}
+	if(idx < size)
+	{
+		unsigned cand = d_candidate[idx+base];
+		memcpy(d_result_new+write_base+idx*(result_col_num+1), d_result+group*result_col_num, sizeof(unsigned)*result_col_num);
+		d_result_new[write_base+idx*(result_col_num+1)+result_col_num] = cand;
+	}
+}
+
+void 
+Match::kernel_expand(unsigned* d_candidate, unsigned*& d_result, unsigned& result_row_num, unsigned& result_col_num, unsigned pos, unsigned array_num)
+{
+	//follow the two-step output scheme to write the merged results
+	unsigned* d_count = NULL;
+	checkCudaErrors(cudaMalloc(&d_count, sizeof(unsigned)*(result_row_num+1)));
+	expand_kernel<<<(result_row_num*32+1023)/1024,1024>>>(d_candidate, d_result, d_count, result_row_num, result_col_num, pos, array_num);
+	cudaDeviceSynchronize();
+	
+	//prefix sum to find position
+	thrust::device_ptr<unsigned> dev_ptr(d_count);
+	unsigned sum;
+	thrust::exclusive_scan(dev_ptr, dev_ptr+result_row_num+1, dev_ptr);
+	checkCudaErrors(cudaGetLastError());
+	cudaMemcpy(&sum, d_count+result_row_num, sizeof(unsigned), cudaMemcpyDeviceToHost);
+	if(sum == 0)
+	{
+		checkCudaErrors(cudaFree(d_count));
+		checkCudaErrors(cudaFree(d_result));
+		d_result = NULL;
+		result_row_num = 0;
+		return;
+	}
+
+	unsigned* d_result_new = NULL;
+	checkCudaErrors(cudaMalloc(&d_result_new, sizeof(unsigned)*sum*(result_col_num+1)));
+	link_kernel<<<(result_row_num*32+1023)/1024,1024>>>(d_result, d_result_new, d_count, result_row_num, result_col_num, d_candidate, pos, array_num);
+	checkCudaErrors(cudaGetLastError());
+	cudaDeviceSynchronize();
+	checkCudaErrors(cudaGetLastError());
+	checkCudaErrors(cudaFree(d_count));
+
+	checkCudaErrors(cudaFree(d_result));
+	d_result = d_result_new;
+	result_row_num = sum;
+	result_col_num++;
+}
+
 bool
-Match::JoinCandidateEdges(unsigned** d_candidate_edge, unsigned* d_candidate_edge_num, unsigned*& d_result, unsigned& result_row_num, unsigned& result_col_num)
+Match::JoinCandidateEdges(unsigned** d_candidate_edge, unsigned* d_candidate_edge_num, unsigned** d_candidate_edge_reverse, unsigned* d_candidate_edge_num_reverse, unsigned*& d_result, unsigned& result_row_num, unsigned& result_col_num)
 {
 	int qsize = this->query->vertex_num;
 	/*int dsize = this->data->vertex_num;*/
@@ -1281,6 +1449,11 @@ Match::JoinCandidateEdges(unsigned** d_candidate_edge, unsigned* d_candidate_edg
 		unsigned* d_candidate = h_candidate_edge[i];
 		cudaMemcpy(&h_candidate_edge_size[i], d_candidate+2*array_num, sizeof(unsigned), cudaMemcpyDeviceToHost);
 	}
+	//the reversed version
+	unsigned* h_candidate_edge_num_reverse = new unsigned[this->edge_num];
+	cudaMemcpy(h_candidate_edge_num_reverse, d_candidate_edge_num_reverse, sizeof(unsigned)*this->edge_num, cudaMemcpyDeviceToHost);
+	unsigned** h_candidate_edge_reverse = new unsigned*[this->edge_num];
+	cudaMemcpy(h_candidate_edge_reverse, d_candidate_edge_reverse, sizeof(unsigned*)*this->edge_num, cudaMemcpyDeviceToHost);
 
 	//construct the result table: start from the smallest edge candidates
 	unsigned minv = this->data->eSize()+1, minx = 0;
@@ -1346,22 +1519,38 @@ Match::JoinCandidateEdges(unsigned** d_candidate_edge, unsigned* d_candidate_edg
 			}
 		}
 		d_candidate = h_candidate_edge[next_minx];
+		array_num = h_candidate_edge_num[next_minx];
 		//each warp deals with a row
+		int u = this->edge_from[next_minx], v = this->edge_to[next_minx];
 		if(expand_mode)
 		{
-			//what should do if only v is connected?
-			/*expand_kernel();*/
-			//TODO: we need to add this mapping
-			/*this->add_mapping(this->edge_to[minx]);*/
+			int upos = -1, vpos = -1;
+			if(visited_vertices[u])
+			{
+				upos = this->id2pos[u];
+				kernel_expand(d_candidate, d_result, result_row_num, result_col_num, upos, array_num);
+				this->add_mapping(v);
+			}
+			else    //only v is visited
+			{
+				d_candidate = h_candidate_edge_reverse[next_minx];
+				array_num = h_candidate_edge_num_reverse[next_minx];
+				vpos = this->id2pos[v];
+				kernel_expand(d_candidate, d_result, result_row_num, result_col_num, vpos, array_num);
+				this->add_mapping(u);
+			}
+
 		}
 		else
 		{
 			//both u and v are connected, then select u as the linking point and check v
-			int u = this->edge_from[next_minx], v = this->edge_to[next_minx];
-			array_num = h_candidate_edge_num[next_minx];
 			kernel_join(d_candidate, d_result, result_row_num, result_col_num, this->id2pos[u], this->id2pos[v], array_num);
 		}
 		//TODO:cache the row in shared memory
+		if(result_row_num == 0)
+		{
+			return false;
+		}
 	}
 
 	delete[] h_candidate_edge;
@@ -1418,17 +1607,32 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 		final_result = NULL;
 		result_row_num = 0;
 		result_col_num = qsize;
+		delete[] this->edge_from;
+		delete[] this->edge_to;
+		delete[] filter_order;
 		//TODO: release resources
 		return; 
 	}
 
 	//refine the candidate vertices recursively
-	RefineCandidateVertices(d_candidate_set);
+	success = RefineCandidateVertices(d_candidate_set);
+	if(!success)
+	{
+		final_result = NULL;
+		result_row_num = 0;
+		result_col_num = qsize;
+		//TODO: release resources
+		return; 
+	}
 
 	unsigned** d_candidate_edge = NULL;
 	unsigned* d_candidate_edge_num = NULL;
+	unsigned** d_candidate_edge_reverse = NULL;
+	unsigned* d_candidate_edge_num_reverse = NULL;
 	//gather candidates for edges
 	FindCandidateEdges(d_candidate_set, d_candidate_edge, d_candidate_edge_num);
+	FindCandidateEdges(d_candidate_set, d_candidate_edge_reverse, d_candidate_edge_num_reverse, true);
+	checkCudaErrors(cudaGetLastError());
 
 	//initialize the mapping structure
 	this->id2pos = new int[qsize];
@@ -1439,12 +1643,14 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 
 	unsigned* d_result = NULL;
 	//join all candidate edges to get result
-	JoinCandidateEdges(d_candidate_edge, d_candidate_edge_num, d_result, result_row_num, result_col_num);
+	success = JoinCandidateEdges(d_candidate_edge, d_candidate_edge_num, d_candidate_edge_reverse, d_candidate_edge_num_reverse, d_result, result_row_num, result_col_num);
+	checkCudaErrors(cudaGetLastError());
 
 	long t8 = Util::get_cur_time();
 	//transfer the result to CPU and output
 	if(success)
 	{
+		cout<<"to copy result: "<<result_row_num<<" "<<result_col_num<<endl;
 		final_result = new unsigned[result_row_num * result_col_num];
 		cudaMemcpy(final_result, d_result, sizeof(unsigned)*result_col_num*result_row_num, cudaMemcpyDeviceToHost);
 	}
@@ -1454,9 +1660,8 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 		result_row_num = 0;
 		result_col_num = qsize;
 	}
-#ifdef DEBUG
 	checkCudaErrors(cudaGetLastError());
-#endif
+
 	/*cudaFree(d_result);*/
 	long t9 = Util::get_cur_time();
 	cerr<<"copy result used: "<<(t9-t8)<<"ms"<<endl;
@@ -1475,7 +1680,7 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 void
 Match::release()
 {
-	/*delete[] this->id2pos;*/
+	delete[] this->id2pos;
 	delete[] this->pos2id;
 	//release query graph on GPU
 	/*cudaFree(d_query_vertex_num);*/

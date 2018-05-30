@@ -106,8 +106,8 @@ private:
 	bool InitializeCandidateVertices(Graph*, unsigned*, bool* d_candidate_set);
 	bool RefineCandidateVertices(bool* d_candidate_set);
 	unsigned edge_num, *edge_from, *edge_to;  //edge info of query graph, from < to
-	bool FindCandidateEdges(bool* d_candidate_set, unsigned**& d_candidate_edge, unsigned*& d_candidate_edge_num);
-	bool JoinCandidateEdges(unsigned** d_candidate_edge, unsigned* d_candidate_edge_num, unsigned*& d_result, unsigned& result_row_num, unsigned& result_col_num);
+	bool FindCandidateEdges(bool* d_candidate_set, unsigned**& d_candidate_edge, unsigned*& d_candidate_edge_num, bool v2u = false);
+	bool JoinCandidateEdges(unsigned** d_candidate_edge, unsigned* d_candidate_edge_num, unsigned** d_candidate_edge_reverse, unsigned* d_candidate_edge_num_reverse, unsigned*& d_result, unsigned& result_row_num, unsigned& result_col_num);
 	void generateSimplifiedGraph(std::vector<unsigned>& simple_vertices, std::vector< std::vector<unsigned> >& simple_edges, int degree_threshold);
 
 	//kernel functions
@@ -118,6 +118,7 @@ private:
 	void kernel_count(int u, int v, unsigned* d_array, unsigned d_array_num, bool* d_candidate_set, unsigned* d_count);
 	void kernel_examine(int u, int v, unsigned d_array_num, bool* d_candidate_set, unsigned* d_tmp);
 	void kernel_join(unsigned* d_candidate, unsigned*& d_result, unsigned& result_row_num, unsigned& result_col_num, unsigned upos, unsigned vpos, unsigned array_num);
+	void kernel_expand(unsigned* d_candidate, unsigned*& d_result, unsigned& result_row_num, unsigned& result_col_num, unsigned pos, unsigned array_num);
 };
 
 #endif
