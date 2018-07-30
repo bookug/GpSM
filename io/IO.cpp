@@ -145,6 +145,17 @@ IO::output()
 bool
 IO::verify(unsigned* ans, unsigned num, Graph* query, Graph* data)
 {
+	//check isomorphism
+	set<unsigned> uniq_set;
+	for(int i = 0; i < num; ++i)
+	{
+		if(uniq_set.find(ans[i]) != uniq_set.end())
+		{
+			cout<<"not unique "<<ans[i]<<endl;
+			return false;
+		}
+		uniq_set.insert(ans[i]);
+	}
 	//enumerate each edge in the query graph to check if this is a valid mapping
 	vector<Vertex>& qvlist = query->vertices;
 	for(int i = 0; i < qvlist.size(); ++i)
@@ -174,9 +185,11 @@ IO::output(unsigned* final_result, unsigned result_row_num, unsigned result_col_
 	for(i = 0; i < result_row_num; ++i)
 	{
 		unsigned* ans = final_result + i * result_col_num;
+			cout<<ans[id_map[0]]<<" "<<ans[id_map[1]]<<" "<<ans[id_map[2]]<<endl;
 		bool valid = verify(ans, result_col_num, query_graph, data_graph);
 		if(!valid)
 		{
+			cout<<"a result is invalid!"<<endl;
 			continue;
 		}
 

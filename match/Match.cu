@@ -4,6 +4,8 @@
 # Mail: 1181955272@qq.com
 # Last Modified: 2016-12-15 01:38
 # Description: 
+This matching process finds subgraph homophism matchings, on the undirected graph without edge labels.
+Other restrictions will be considered in IO::verify()
 =============================================================================*/
 
 #include "Match.h"
@@ -670,7 +672,7 @@ Match::InitializeCandidateVertices(Graph* span_tree, unsigned* filter_order, boo
 		unsigned u = filter_order[i];
 		if(!initialized[u])
 		{
-			/*cout<<"to find candidate for "<<u<<endl;*/
+			cout<<"to find candidate for "<<u<<endl;
 			kernel_check(u, d_candidate_set+dsize*u);
 			initialized[u] = true;
 		}
@@ -1267,6 +1269,7 @@ Match::kernel_join(unsigned* d_candidate, unsigned*& d_result, unsigned& result_
 	result_row_num = sum;
 }
 
+//NOTICE: check isomorphism(not homorphism) in expand, no need for join
 __global__ void
 expand_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsigned result_row_num, unsigned result_col_num, unsigned pos, unsigned array_num)
 {
@@ -1317,6 +1320,7 @@ expand_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsi
 	idx_mu = idx_mu & (-idx_mu);
 	idx_mu = log2((double)idx_mu);
 	d_count[group] = d_candidate[array_num+idx_mu+1] - d_candidate[array_num+idx_mu];
+	//BETTER: check isomorphism here using a warp, better to use shared memory
 }
 
 __global__ void
@@ -1427,6 +1431,17 @@ Match::kernel_expand(unsigned* d_candidate, unsigned*& d_result, unsigned& resul
 	result_col_num++;
 }
 
+//TODO: join must occur via edges, otherwise it will be complicated and costly
+//(need to copy the whole candidates for each row)
+//TODO: for subtraction, read from begin to end for all threads to scan and set to 0
+//TODO: more operations can be optimized using Load Balance Strategy, like read from CSV, intersection, subtraction
+//
+//alloc/free of small pieces memory on GPU is costly due to locks!
+//A better strategy is to alloc a given amount first for each row(combined into a big array), 
+//the state are all set to 1 first, and long list needs to be allocated again!
+//
+//TODO: assign big array for join, 64*4B for each row? do filter and compact using warp for a row?
+//set to MAXIMUM and set hash[MAXIMUM]=0 to avoid warp divergency
 bool
 Match::JoinCandidateEdges(unsigned** d_candidate_edge, unsigned* d_candidate_edge_num, unsigned** d_candidate_edge_reverse, unsigned* d_candidate_edge_num_reverse, unsigned*& d_result, unsigned& result_row_num, unsigned& result_col_num)
 {
@@ -1571,6 +1586,7 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 #ifdef DEBUG
 	cout<<"graph copied to GPU"<<endl;
 #endif
+	checkCudaErrors(cudaGetLastError());
 
 	int qsize = this->query->vertex_num;
 	int dsize = this->data->vertex_num;
@@ -1592,18 +1608,22 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 			edge_id++;
 		}
 	}
+	cout<<"check edges in query"<<endl;
 
 	//generate spanning Tree
 	unsigned* filter_order = new unsigned[qsize];
 	Graph* span_tree = new Graph;
 	generateSpanningTree(span_tree, filter_order);
+	cout<<"spanning tree generated"<<endl;
 
 	bool* d_candidate_set = NULL;
 	cudaMalloc(&d_candidate_set, sizeof(bool)*qsize*dsize);
 	//filter out the candidate vertices
 	bool success = InitializeCandidateVertices(span_tree, filter_order, d_candidate_set);
+	cout<<"candidate vertices initialized"<<endl;
 	if(!success)
 	{
+		cout<<"already empty after initialized"<<endl;
 		final_result = NULL;
 		result_row_num = 0;
 		result_col_num = qsize;
@@ -1614,16 +1634,45 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 		return; 
 	}
 
+#ifdef DEBUG
+	//check candidates
+	bool* h_candidate_set = new bool[sizeof(bool)*qsize*dsize];
+	cudaMemcpy(h_candidate_set, d_candidate_set, sizeof(bool)*qsize*dsize, cudaMemcpyDeviceToHost);
+	cout<<"check candidate vertices"<<endl;
+	for(int i = 0; i < qsize; ++i)
+	{
+		for(int j = 0; j < dsize; ++j)
+		{
+			cout<<h_candidate_set[i*dsize+j]<<" ";
+		}
+		cout<<endl;
+	}
+#endif
+
 	//refine the candidate vertices recursively
 	success = RefineCandidateVertices(d_candidate_set);
+	cout<<"candidate vertices refined"<<endl;
 	if(!success)
 	{
+		cout<<"already empty after refined"<<endl;
 		final_result = NULL;
 		result_row_num = 0;
 		result_col_num = qsize;
 		//TODO: release resources
 		return; 
 	}
+#ifdef DEBUG
+	cudaMemcpy(h_candidate_set, d_candidate_set, sizeof(bool)*qsize*dsize, cudaMemcpyDeviceToHost);
+	cout<<"check refined candidate vertices"<<endl;
+	for(int i = 0; i < qsize; ++i)
+	{
+		for(int j = 0; j < dsize; ++j)
+		{
+			cout<<h_candidate_set[i*dsize+j]<<" ";
+		}
+		cout<<endl;
+	}
+#endif
 
 	unsigned** d_candidate_edge = NULL;
 	unsigned* d_candidate_edge_num = NULL;
@@ -1633,6 +1682,68 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 	FindCandidateEdges(d_candidate_set, d_candidate_edge, d_candidate_edge_num);
 	FindCandidateEdges(d_candidate_set, d_candidate_edge_reverse, d_candidate_edge_num_reverse, true);
 	checkCudaErrors(cudaGetLastError());
+	cout<<"candidate edges found"<<endl;
+#ifdef DEBUG
+	cout<<"check candidate edges"<<endl;
+	unsigned* h_candidate_edge_num = new unsigned[this->edge_num];
+	unsigned** h_candidate_edge = new unsigned*[this->edge_num];
+	cudaMemcpy(h_candidate_edge_num, d_candidate_edge_num, sizeof(unsigned)*this->edge_num, cudaMemcpyDeviceToHost);
+	cudaMemcpy(h_candidate_edge, d_candidate_edge, sizeof(unsigned*)*this->edge_num, cudaMemcpyDeviceToHost);
+	for(int i = 0; i < this->edge_num; ++i)
+	{
+		cout<<"check edge: "<<edge_from[i]<<" "<<edge_to[i]<<" "<<h_candidate_edge_num[i]<<endl;
+		unsigned num = h_candidate_edge_num[i];
+		unsigned* count = new unsigned[2*num+1];
+		cudaMemcpy(count, h_candidate_edge[i], sizeof(unsigned)*(2*num+1), cudaMemcpyDeviceToHost);
+		unsigned sum = count[2*num];
+		unsigned* tmp = new unsigned[sum];
+		cudaMemcpy(tmp, h_candidate_edge[i]+2*num+1, sizeof(unsigned)*sum, cudaMemcpyDeviceToHost);
+		for(int j = 0; j < num; ++j)
+		{
+			cout<<count[j]<<" ";
+		}cout<<endl;
+		for(int j = num; j < 2*num+1; ++j)
+		{
+			cout<<count[j]<<" ";
+		}cout<<endl;
+		for(int j = 0; j < sum; ++j)
+		{
+			cout<<tmp[j]<<" ";
+		}cout<<endl;
+		delete[] count;
+		delete[] tmp;
+	}
+	//check the reverse version
+	cout<<"check reversed candidate edges"<<endl;
+	unsigned* h_candidate_edge_num_reverse = new unsigned[this->edge_num];
+	unsigned** h_candidate_edge_reverse = new unsigned*[this->edge_num];
+	cudaMemcpy(h_candidate_edge_num_reverse, d_candidate_edge_num_reverse, sizeof(unsigned)*this->edge_num, cudaMemcpyDeviceToHost);
+	cudaMemcpy(h_candidate_edge_reverse, d_candidate_edge_reverse, sizeof(unsigned*)*this->edge_num, cudaMemcpyDeviceToHost);
+	for(int i = 0; i < this->edge_num; ++i)
+	{
+		cout<<"check edge: "<<edge_to[i]<<" "<<edge_from[i]<<" "<<h_candidate_edge_num_reverse[i]<<endl;
+		unsigned num = h_candidate_edge_num_reverse[i];
+		unsigned* count = new unsigned[2*num+1];
+		cudaMemcpy(count, h_candidate_edge_reverse[i], sizeof(unsigned)*(2*num+1), cudaMemcpyDeviceToHost);
+		unsigned sum = count[2*num];
+		unsigned* tmp = new unsigned[sum];
+		cudaMemcpy(tmp, h_candidate_edge_reverse[i]+2*num+1, sizeof(unsigned)*sum, cudaMemcpyDeviceToHost);
+		for(int j = 0; j < num; ++j)
+		{
+			cout<<count[j]<<" ";
+		}cout<<endl;
+		for(int j = num; j < 2*num+1; ++j)
+		{
+			cout<<count[j]<<" ";
+		}cout<<endl;
+		for(int j = 0; j < sum; ++j)
+		{
+			cout<<tmp[j]<<" ";
+		}cout<<endl;
+		delete[] count;
+		delete[] tmp;
+	}
+#endif
 
 	//initialize the mapping structure
 	this->id2pos = new int[qsize];
@@ -1645,6 +1756,7 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 	//join all candidate edges to get result
 	success = JoinCandidateEdges(d_candidate_edge, d_candidate_edge_num, d_candidate_edge_reverse, d_candidate_edge_num_reverse, d_result, result_row_num, result_col_num);
 	checkCudaErrors(cudaGetLastError());
+	cout<<"candidate edges joined"<<endl;
 
 	long t8 = Util::get_cur_time();
 	//transfer the result to CPU and output
@@ -1680,7 +1792,7 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 void
 Match::release()
 {
-	delete[] this->id2pos;
+	/*delete[] this->id2pos;*/
 	delete[] this->pos2id;
 	//release query graph on GPU
 	/*cudaFree(d_query_vertex_num);*/
