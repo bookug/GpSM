@@ -3,7 +3,8 @@
 #compile parameters
 
 CC = g++
-NVCC = nvcc -arch=sm_35 -lcudadevrt -rdc=true -G --ptxas-options=-v
+#NVCC = nvcc -arch=sm_35 -lcudadevrt -rdc=true -G --ptxas-options=-v
+NVCC = nvcc -arch=sm_35 -lcudadevrt -rdc=true -G
 #NVCC = nvcc -arch=sm_35 -lcudadevrt -rdc=true -G -Xcompiler -rdynamic -lineinfo
 CFLAGS = -g -c #-fprofile-arcs -ftest-coverage -coverage #-pg
 EXEFLAG = -g #-fprofile-arcs -ftest-coverage -coverage #-pg #-O2

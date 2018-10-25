@@ -672,10 +672,14 @@ Match::InitializeCandidateVertices(Graph* span_tree, unsigned* filter_order, boo
 		unsigned u = filter_order[i];
 		if(!initialized[u])
 		{
-			cout<<"to find candidate for "<<u<<endl;
+            cout<<"to find candidate for "<<u<<endl;
 			kernel_check(u, d_candidate_set+dsize*u);
 			initialized[u] = true;
 		}
+        else
+        {
+            cout<<"already initialized "<<u<<endl;
+        }
 		unsigned* d_array = NULL;
 		unsigned d_array_num = 0;
 		kernel_collect(d_candidate_set+dsize*u, d_array, d_array_num);
@@ -685,6 +689,19 @@ Match::InitializeCandidateVertices(Graph* span_tree, unsigned* filter_order, boo
 			cout<<"no candidate for the "<<u<<"th query vertex"<<endl;
 			return false; 
 		}
+
+        if(u == 1)
+        {
+            unsigned * h_array = new unsigned[d_array_num];
+            cudaMemcpy(h_array, d_array, sizeof(unsigned)*d_array_num, cudaMemcpyDeviceToHost);
+            for(int xxx = 0; xxx < d_array_num; ++xxx)
+            {
+                cout<<h_array[xxx]<<" ";
+            }
+            cout<<endl;
+            delete[] h_array;
+        }
+
 		kernel_explore(u, d_array, d_array_num, d_candidate_set, span_tree, initialized);
 		checkCudaErrors(cudaFree(d_array));
 		for(int j = this->query->undirected_row_offset[u]; j < this->query->undirected_row_offset[u+1]; ++j)
@@ -874,8 +891,10 @@ __global__ void
 count_kernel(unsigned* d_data_row_offset, unsigned* d_data_column_index, bool* d_candidate_set, int dsize, unsigned* d_array, unsigned d_array_num, int u, int v, unsigned* d_count)
 {
 	int t = blockIdx.x * blockDim.x + threadIdx.x;
-	int group = t / 32;
-	int idx = t % 32;
+	/*int group = t / 32;*/
+	/*int idx = t % 32;*/
+	int group = t >> 5;
+	int idx = t & 0x1f;
 	if(group >= d_array_num)
 	{
 		return; 
@@ -883,8 +902,10 @@ count_kernel(unsigned* d_data_row_offset, unsigned* d_data_column_index, bool* d
 	unsigned mu = d_array[group];
 	unsigned begin = d_data_row_offset[mu];
 	unsigned size = d_data_row_offset[mu+1] - begin;
-	unsigned loop = size / 32;
-	size = size % 32;
+	/*unsigned loop = size / 32;*/
+	/*size = size % 32;*/
+	unsigned loop = size >> 5;
+	size = size & 0x1f;
 
 	unsigned count = 0;
 	//each thread get adjacent vertex of mu as mv
@@ -939,8 +960,10 @@ examine_kernel(unsigned* d_data_row_offset, unsigned* d_data_column_index, bool*
 	//NOTICE: we must use volatile restriction to force each thread to read from shared memory instead of local register
 	/*extern __volatile__ __shared__ unsigned write_pos[];*/
 	int t = blockIdx.x * blockDim.x + threadIdx.x;
-	int group = t / 32;
-	int idx = t % 32;
+	/*int group = t / 32;*/
+	/*int idx = t % 32;*/
+	int group = t >> 5;
+	int idx = t & 0x1f;
 	if(group >= d_array_num)
 	{
 		return; 
@@ -953,8 +976,10 @@ examine_kernel(unsigned* d_data_row_offset, unsigned* d_data_column_index, bool*
 	unsigned write_pos = d_tmp[group+d_array_num];
 	unsigned begin = d_data_row_offset[mu];
 	unsigned size = d_data_row_offset[mu+1] - begin;
-	unsigned loop = size / 32;
-	size = size % 32;
+	/*unsigned loop = size / 32;*/
+	/*size = size % 32;*/
+	unsigned loop = size >> 5;
+	size = size & 0x1f;
 
 	//each thread get adjacent vertex of mu as mv
 	unsigned base = 0;
@@ -1093,8 +1118,10 @@ __global__ void
 table_kernel(unsigned* d_candidate, unsigned* d_result, unsigned result_row_num, unsigned result_col_num, unsigned array_num)
 {
 	int t = blockIdx.x * blockDim.x + threadIdx.x;
-	int group = t / 32;
-	int idx = t % 32;
+	/*int group = t / 32;*/
+	/*int idx = t % 32;*/
+	int group = t >> 5;
+	int idx = t & 0x1f;
 	if(group >= array_num)
 	{
 		return; 
@@ -1102,8 +1129,11 @@ table_kernel(unsigned* d_candidate, unsigned* d_result, unsigned result_row_num,
 	unsigned mu = d_candidate[group];
 	unsigned begin = d_candidate[array_num+group];
 	unsigned size = d_candidate[array_num+group+1] - begin;
-	unsigned loop = size / 32;
-	size = size % 32;
+	/*unsigned loop = size / 32;*/
+	/*size = size % 32;*/
+	unsigned loop = size >> 5;
+	size = size & 0x1f;
+
 	//each thread get adjacent vertex of mu as mv
 	unsigned base = begin;
 	for(int j = 0; j < loop; ++j, base+=32)
@@ -1125,8 +1155,10 @@ __global__ void
 join_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsigned result_row_num, unsigned result_col_num, unsigned upos, unsigned vpos, unsigned array_num)
 {
 	int t = blockIdx.x * blockDim.x + threadIdx.x;
-	int group = t / 32;
-	int idx = t % 32;
+	/*int group = t / 32;*/
+	/*int idx = t % 32;*/
+	int group = t >> 5;
+	int idx = t & 0x1f;
 	if(group >= result_row_num)
 	{
 		return; 
@@ -1136,8 +1168,10 @@ join_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsign
 	unsigned mv = d_result[group*result_col_num+vpos];
 	//find mu in d_array using a warp
 	unsigned size = array_num;
-	unsigned loop = size / 32;
-	size = size % 32;
+	/*unsigned loop = size / 32;*/
+	/*size = size % 32;*/
+	unsigned loop = size >> 5;
+	size = size & 0x1f;
 
 	unsigned valid_mu = 0;
 	unsigned base = 0;
@@ -1185,8 +1219,10 @@ join_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsign
 	unsigned valid_mv = 0;
 	base = d_candidate[array_num+idx_mu];
 	size = d_candidate[array_num+idx_mu+1] - base;
-	loop = size / 32;
-	size = size % 32;
+	/*loop = size / 32;*/
+	/*size = size % 32;*/
+	loop = size >> 5;
+	size = size & 0x1f;
 	base = base + 2*array_num+1;
 	for(int j = 0; j < loop; ++j, base+=32)
 	{
@@ -1274,8 +1310,10 @@ __global__ void
 expand_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsigned result_row_num, unsigned result_col_num, unsigned pos, unsigned array_num)
 {
 	int t = blockIdx.x * blockDim.x + threadIdx.x;
-	int group = t / 32;
-	int idx = t % 32;
+	/*int group = t / 32;*/
+	/*int idx = t % 32;*/
+	int group = t >> 5;
+	int idx = t & 0x1f;
 	if(group >= result_row_num)
 	{
 		return; 
@@ -1284,8 +1322,10 @@ expand_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsi
 	unsigned mu = d_result[group*result_col_num+pos];
 	//find mu in d_array using a warp
 	unsigned size = array_num;
-	unsigned loop = size / 32;
-	size = size % 32;
+	/*unsigned loop = size / 32;*/
+	/*size = size % 32;*/
+	unsigned loop = size >> 5;
+	size = size & 0x1f;
 
 	unsigned valid_mu = 0;
 	unsigned base = 0;
@@ -1327,8 +1367,10 @@ __global__ void
 link_kernel(unsigned* d_result, unsigned* d_result_new, unsigned* d_count, unsigned result_row_num, unsigned result_col_num, unsigned* d_candidate, unsigned pos, unsigned array_num)
 {
 	int t = blockIdx.x * blockDim.x + threadIdx.x;
-	int group = t / 32;
-	int idx = t % 32;
+	/*int group = t / 32;*/
+	/*int idx = t % 32;*/
+	int group = t >> 5;
+	int idx = t & 0x1f;
 	if(group >= result_row_num)
 	{
 		return; 
@@ -1341,8 +1383,10 @@ link_kernel(unsigned* d_result, unsigned* d_result_new, unsigned* d_count, unsig
 	unsigned mu = d_result[group*result_col_num+pos];
 	//find mu in d_array using a warp
 	unsigned size = array_num;
-	unsigned loop = size / 32;
-	size = size % 32;
+	/*unsigned loop = size / 32;*/
+	/*size = size % 32;*/
+	unsigned loop = size >> 5;
+	size = size & 0x1f;
 
 	unsigned valid_mu = 0;
 	unsigned base = 0;
@@ -1374,8 +1418,10 @@ link_kernel(unsigned* d_result, unsigned* d_result_new, unsigned* d_count, unsig
 	//find mv in adjs of mu using a warp
 	base = d_candidate[array_num+idx_mu];
 	size = d_candidate[array_num+idx_mu+1] - base;
-	loop = size / 32;
-	size = size % 32;
+	/*loop = size / 32;*/
+	/*size = size % 32;*/
+	loop = size >> 5;
+	size = size & 0x1f;
 	base = base + 2*array_num+1;
 	unsigned write_base = d_count[group] * (result_col_num+1);
 	for(int j = 0; j < loop; ++j, base+=32)
@@ -1643,7 +1689,11 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 	{
 		for(int j = 0; j < dsize; ++j)
 		{
-			cout<<h_candidate_set[i*dsize+j]<<" ";
+			/*cout<<h_candidate_set[i*dsize+j]<<" ";*/
+            if(h_candidate_set[i*dsize+j])
+            {
+                cout<<j<<" ";
+            }
 		}
 		cout<<endl;
 	}
@@ -1668,7 +1718,11 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 	{
 		for(int j = 0; j < dsize; ++j)
 		{
-			cout<<h_candidate_set[i*dsize+j]<<" ";
+			/*cout<<h_candidate_set[i*dsize+j]<<" ";*/
+            if(h_candidate_set[i*dsize+j])
+            {
+                cout<<j<<" ";
+            }
 		}
 		cout<<endl;
 	}
