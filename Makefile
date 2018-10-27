@@ -6,8 +6,8 @@ CC = g++
 #NVCC = nvcc -arch=sm_35 -lcudadevrt -rdc=true -G --ptxas-options=-v
 NVCC = nvcc -arch=sm_35 -lcudadevrt -rdc=true -G
 #NVCC = nvcc -arch=sm_35 -lcudadevrt -rdc=true -G -Xcompiler -rdynamic -lineinfo
-CFLAGS = -g -c #-fprofile-arcs -ftest-coverage -coverage #-pg
-EXEFLAG = -g #-fprofile-arcs -ftest-coverage -coverage #-pg #-O2
+CFLAGS = -DDEBUG -g -c #-fprofile-arcs -ftest-coverage -coverage #-pg
+EXEFLAG = -DDEBUG -g #-fprofile-arcs -ftest-coverage -coverage #-pg #-O2
 #NVCC = nvcc -arch=sm_35 -lcudadevrt -rdc=true 
 #CFLAGS = -c #-fprofile-arcs -ftest-coverage -coverage #-pg
 #CFLAGS = -c -O2 #-fprofile-arcs -ftest-coverage -coverage #-pg

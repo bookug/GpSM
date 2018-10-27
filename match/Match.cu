@@ -690,17 +690,19 @@ Match::InitializeCandidateVertices(Graph* span_tree, unsigned* filter_order, boo
 			return false; 
 		}
 
-        if(u == 1)
-        {
-            unsigned * h_array = new unsigned[d_array_num];
-            cudaMemcpy(h_array, d_array, sizeof(unsigned)*d_array_num, cudaMemcpyDeviceToHost);
-            for(int xxx = 0; xxx < d_array_num; ++xxx)
-            {
-                cout<<h_array[xxx]<<" ";
-            }
-            cout<<endl;
-            delete[] h_array;
-        }
+#ifdef DEBUG
+        /*if(u == 1)*/
+        /*{*/
+            /*unsigned * h_array = new unsigned[d_array_num];*/
+            /*cudaMemcpy(h_array, d_array, sizeof(unsigned)*d_array_num, cudaMemcpyDeviceToHost);*/
+            /*for(int xxx = 0; xxx < d_array_num; ++xxx)*/
+            /*{*/
+                /*cout<<h_array[xxx]<<" ";*/
+            /*}*/
+            /*cout<<endl;*/
+            /*delete[] h_array;*/
+        /*}*/
+#endif
 
 		kernel_explore(u, d_array, d_array_num, d_candidate_set, span_tree, initialized);
 		checkCudaErrors(cudaFree(d_array));
@@ -1451,26 +1453,30 @@ Match::kernel_expand(unsigned* d_candidate, unsigned*& d_result, unsigned& resul
 	cudaDeviceSynchronize();
 	checkCudaErrors(cudaGetLastError());
 
-    unsigned* t_count = new unsigned[result_row_num];
-	cudaMemcpy(t_count, d_count, sizeof(unsigned)*(result_row_num), cudaMemcpyDeviceToHost);
-    cout<<"check count: "<<endl;
-    for(int i = 0; i < result_row_num; ++i)
-    {
-        cout<<t_count[i]<<" ";
-    }cout<<endl;
+#ifdef DEBUG
+    /*unsigned* t_count = new unsigned[result_row_num];*/
+	/*cudaMemcpy(t_count, d_count, sizeof(unsigned)*(result_row_num), cudaMemcpyDeviceToHost);*/
+    /*cout<<"check count: "<<endl;*/
+    /*for(int i = 0; i < result_row_num; ++i)*/
+    /*{*/
+        /*cout<<t_count[i]<<" ";*/
+    /*}cout<<endl;*/
+#endif
 	
 	//prefix sum to find position
 	thrust::device_ptr<unsigned> dev_ptr(d_count);
 	unsigned sum;
 	thrust::exclusive_scan(dev_ptr, dev_ptr+result_row_num+1, dev_ptr);
 
-    unsigned* h_count = new unsigned[result_row_num+1];
-	cudaMemcpy(h_count, d_count, sizeof(unsigned)*(result_row_num+1), cudaMemcpyDeviceToHost);
-    cout<<"check count after scan: "<<endl;
-    for(int i = 0; i < result_row_num+1; ++i)
-    {
-        cout<<h_count[i]<<" ";
-    }cout<<endl;
+#ifdef DEBUG
+    /*unsigned* h_count = new unsigned[result_row_num+1];*/
+	/*cudaMemcpy(h_count, d_count, sizeof(unsigned)*(result_row_num+1), cudaMemcpyDeviceToHost);*/
+    /*cout<<"check count after scan: "<<endl;*/
+    /*for(int i = 0; i < result_row_num+1; ++i)*/
+    /*{*/
+        /*cout<<h_count[i]<<" ";*/
+    /*}cout<<endl;*/
+#endif
 
 	checkCudaErrors(cudaGetLastError());
 	cudaMemcpy(&sum, d_count+result_row_num, sizeof(unsigned), cudaMemcpyDeviceToHost);
@@ -1695,21 +1701,21 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 
 #ifdef DEBUG
 	//check candidates
-	bool* h_candidate_set = new bool[sizeof(bool)*qsize*dsize];
-	cudaMemcpy(h_candidate_set, d_candidate_set, sizeof(bool)*qsize*dsize, cudaMemcpyDeviceToHost);
-	cout<<"check candidate vertices"<<endl;
-	for(int i = 0; i < qsize; ++i)
-	{
-		for(int j = 0; j < dsize; ++j)
-		{
-			/*cout<<h_candidate_set[i*dsize+j]<<" ";*/
-            if(h_candidate_set[i*dsize+j])
-            {
-                cout<<j<<" ";
-            }
-		}
-		cout<<endl;
-	}
+	/*bool* h_candidate_set = new bool[sizeof(bool)*qsize*dsize];*/
+	/*cudaMemcpy(h_candidate_set, d_candidate_set, sizeof(bool)*qsize*dsize, cudaMemcpyDeviceToHost);*/
+	/*cout<<"check candidate vertices"<<endl;*/
+	/*for(int i = 0; i < qsize; ++i)*/
+	/*{*/
+		/*for(int j = 0; j < dsize; ++j)*/
+		/*{*/
+			/*[>cout<<h_candidate_set[i*dsize+j]<<" ";<]*/
+            /*if(h_candidate_set[i*dsize+j])*/
+            /*{*/
+                /*cout<<j<<" ";*/
+            /*}*/
+		/*}*/
+		/*cout<<endl;*/
+	/*}*/
 #endif
 
 	//refine the candidate vertices recursively
@@ -1724,21 +1730,22 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 		//TODO: release resources
 		return; 
 	}
+
 #ifdef DEBUG
-	cudaMemcpy(h_candidate_set, d_candidate_set, sizeof(bool)*qsize*dsize, cudaMemcpyDeviceToHost);
-	cout<<"check refined candidate vertices"<<endl;
-	for(int i = 0; i < qsize; ++i)
-	{
-		for(int j = 0; j < dsize; ++j)
-		{
-			/*cout<<h_candidate_set[i*dsize+j]<<" ";*/
-            if(h_candidate_set[i*dsize+j])
-            {
-                cout<<j<<" ";
-            }
-		}
-		cout<<endl;
-	}
+	/*cudaMemcpy(h_candidate_set, d_candidate_set, sizeof(bool)*qsize*dsize, cudaMemcpyDeviceToHost);*/
+	/*cout<<"check refined candidate vertices"<<endl;*/
+	/*for(int i = 0; i < qsize; ++i)*/
+	/*{*/
+		/*for(int j = 0; j < dsize; ++j)*/
+		/*{*/
+			/*[>cout<<h_candidate_set[i*dsize+j]<<" ";<]*/
+            /*if(h_candidate_set[i*dsize+j])*/
+            /*{*/
+                /*cout<<j<<" ";*/
+            /*}*/
+		/*}*/
+		/*cout<<endl;*/
+	/*}*/
 #endif
 
 	unsigned** d_candidate_edge = NULL;
@@ -1750,66 +1757,67 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 	FindCandidateEdges(d_candidate_set, d_candidate_edge_reverse, d_candidate_edge_num_reverse, true);
 	checkCudaErrors(cudaGetLastError());
 	cout<<"candidate edges found"<<endl;
+
 #ifdef DEBUG
-	cout<<"check candidate edges"<<endl;
-	unsigned* h_candidate_edge_num = new unsigned[this->edge_num];
-	unsigned** h_candidate_edge = new unsigned*[this->edge_num];
-	cudaMemcpy(h_candidate_edge_num, d_candidate_edge_num, sizeof(unsigned)*this->edge_num, cudaMemcpyDeviceToHost);
-	cudaMemcpy(h_candidate_edge, d_candidate_edge, sizeof(unsigned*)*this->edge_num, cudaMemcpyDeviceToHost);
-	for(int i = 0; i < this->edge_num; ++i)
-	{
-		cout<<"check edge: "<<edge_from[i]<<" "<<edge_to[i]<<" "<<h_candidate_edge_num[i]<<endl;
-		unsigned num = h_candidate_edge_num[i];
-		unsigned* count = new unsigned[2*num+1];
-		cudaMemcpy(count, h_candidate_edge[i], sizeof(unsigned)*(2*num+1), cudaMemcpyDeviceToHost);
-		unsigned sum = count[2*num];
-		unsigned* tmp = new unsigned[sum];
-		cudaMemcpy(tmp, h_candidate_edge[i]+2*num+1, sizeof(unsigned)*sum, cudaMemcpyDeviceToHost);
-		for(int j = 0; j < num; ++j)
-		{
-			cout<<count[j]<<" ";
-		}cout<<endl;
-		for(int j = num; j < 2*num+1; ++j)
-		{
-			cout<<count[j]<<" ";
-		}cout<<endl;
-		for(int j = 0; j < sum; ++j)
-		{
-			cout<<tmp[j]<<" ";
-		}cout<<endl;
-		delete[] count;
-		delete[] tmp;
-	}
-	//check the reverse version
-	cout<<"check reversed candidate edges"<<endl;
-	unsigned* h_candidate_edge_num_reverse = new unsigned[this->edge_num];
-	unsigned** h_candidate_edge_reverse = new unsigned*[this->edge_num];
-	cudaMemcpy(h_candidate_edge_num_reverse, d_candidate_edge_num_reverse, sizeof(unsigned)*this->edge_num, cudaMemcpyDeviceToHost);
-	cudaMemcpy(h_candidate_edge_reverse, d_candidate_edge_reverse, sizeof(unsigned*)*this->edge_num, cudaMemcpyDeviceToHost);
-	for(int i = 0; i < this->edge_num; ++i)
-	{
-		cout<<"check edge: "<<edge_to[i]<<" "<<edge_from[i]<<" "<<h_candidate_edge_num_reverse[i]<<endl;
-		unsigned num = h_candidate_edge_num_reverse[i];
-		unsigned* count = new unsigned[2*num+1];
-		cudaMemcpy(count, h_candidate_edge_reverse[i], sizeof(unsigned)*(2*num+1), cudaMemcpyDeviceToHost);
-		unsigned sum = count[2*num];
-		unsigned* tmp = new unsigned[sum];
-		cudaMemcpy(tmp, h_candidate_edge_reverse[i]+2*num+1, sizeof(unsigned)*sum, cudaMemcpyDeviceToHost);
-		for(int j = 0; j < num; ++j)
-		{
-			cout<<count[j]<<" ";
-		}cout<<endl;
-		for(int j = num; j < 2*num+1; ++j)
-		{
-			cout<<count[j]<<" ";
-		}cout<<endl;
-		for(int j = 0; j < sum; ++j)
-		{
-			cout<<tmp[j]<<" ";
-		}cout<<endl;
-		delete[] count;
-		delete[] tmp;
-	}
+	/*cout<<"check candidate edges"<<endl;*/
+	/*unsigned* h_candidate_edge_num = new unsigned[this->edge_num];*/
+	/*unsigned** h_candidate_edge = new unsigned*[this->edge_num];*/
+	/*cudaMemcpy(h_candidate_edge_num, d_candidate_edge_num, sizeof(unsigned)*this->edge_num, cudaMemcpyDeviceToHost);*/
+	/*cudaMemcpy(h_candidate_edge, d_candidate_edge, sizeof(unsigned*)*this->edge_num, cudaMemcpyDeviceToHost);*/
+	/*for(int i = 0; i < this->edge_num; ++i)*/
+	/*{*/
+		/*cout<<"check edge: "<<edge_from[i]<<" "<<edge_to[i]<<" "<<h_candidate_edge_num[i]<<endl;*/
+		/*unsigned num = h_candidate_edge_num[i];*/
+		/*unsigned* count = new unsigned[2*num+1];*/
+		/*cudaMemcpy(count, h_candidate_edge[i], sizeof(unsigned)*(2*num+1), cudaMemcpyDeviceToHost);*/
+		/*unsigned sum = count[2*num];*/
+		/*unsigned* tmp = new unsigned[sum];*/
+		/*cudaMemcpy(tmp, h_candidate_edge[i]+2*num+1, sizeof(unsigned)*sum, cudaMemcpyDeviceToHost);*/
+		/*for(int j = 0; j < num; ++j)*/
+		/*{*/
+			/*cout<<count[j]<<" ";*/
+		/*}cout<<endl;*/
+		/*for(int j = num; j < 2*num+1; ++j)*/
+		/*{*/
+			/*cout<<count[j]<<" ";*/
+		/*}cout<<endl;*/
+		/*for(int j = 0; j < sum; ++j)*/
+		/*{*/
+			/*cout<<tmp[j]<<" ";*/
+		/*}cout<<endl;*/
+		/*delete[] count;*/
+		/*delete[] tmp;*/
+	/*}*/
+	/*//check the reverse version*/
+	/*cout<<"check reversed candidate edges"<<endl;*/
+	/*unsigned* h_candidate_edge_num_reverse = new unsigned[this->edge_num];*/
+	/*unsigned** h_candidate_edge_reverse = new unsigned*[this->edge_num];*/
+	/*cudaMemcpy(h_candidate_edge_num_reverse, d_candidate_edge_num_reverse, sizeof(unsigned)*this->edge_num, cudaMemcpyDeviceToHost);*/
+	/*cudaMemcpy(h_candidate_edge_reverse, d_candidate_edge_reverse, sizeof(unsigned*)*this->edge_num, cudaMemcpyDeviceToHost);*/
+	/*for(int i = 0; i < this->edge_num; ++i)*/
+	/*{*/
+		/*cout<<"check edge: "<<edge_to[i]<<" "<<edge_from[i]<<" "<<h_candidate_edge_num_reverse[i]<<endl;*/
+		/*unsigned num = h_candidate_edge_num_reverse[i];*/
+		/*unsigned* count = new unsigned[2*num+1];*/
+		/*cudaMemcpy(count, h_candidate_edge_reverse[i], sizeof(unsigned)*(2*num+1), cudaMemcpyDeviceToHost);*/
+		/*unsigned sum = count[2*num];*/
+		/*unsigned* tmp = new unsigned[sum];*/
+		/*cudaMemcpy(tmp, h_candidate_edge_reverse[i]+2*num+1, sizeof(unsigned)*sum, cudaMemcpyDeviceToHost);*/
+		/*for(int j = 0; j < num; ++j)*/
+		/*{*/
+			/*cout<<count[j]<<" ";*/
+		/*}cout<<endl;*/
+		/*for(int j = num; j < 2*num+1; ++j)*/
+		/*{*/
+			/*cout<<count[j]<<" ";*/
+		/*}cout<<endl;*/
+		/*for(int j = 0; j < sum; ++j)*/
+		/*{*/
+			/*cout<<tmp[j]<<" ";*/
+		/*}cout<<endl;*/
+		/*delete[] count;*/
+		/*delete[] tmp;*/
+	/*}*/
 #endif
 
 	//initialize the mapping structure
@@ -1825,6 +1833,7 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 	checkCudaErrors(cudaGetLastError());
 	cout<<"candidate edges joined"<<endl;
 #ifdef DEBUG
+    cout<<"id2pos: "<<endl;
     for(int i = 0; i < qsize; ++i)
     {
         cout<<this->id2pos[i]<<" ";

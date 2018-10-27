@@ -151,7 +151,9 @@ IO::verify(unsigned* ans, unsigned num, Graph* query, Graph* data)
 	{
 		if(uniq_set.find(ans[i]) != uniq_set.end())
 		{
-			cout<<"not unique "<<ans[i]<<endl;
+#ifdef DEBUG
+			//cout<<"not unique "<<ans[i]<<endl;
+#endif
 			return false;
 		}
 		uniq_set.insert(ans[i]);
@@ -185,11 +187,15 @@ IO::output(unsigned* final_result, unsigned result_row_num, unsigned result_col_
 	for(i = 0; i < result_row_num; ++i)
 	{
 		unsigned* ans = final_result + i * result_col_num;
-			cout<<ans[id_map[0]]<<" "<<ans[id_map[1]]<<" "<<ans[id_map[2]]<<endl;
+#ifdef DEBUG
+        //cout<<ans[id_map[0]]<<" "<<ans[id_map[1]]<<" "<<ans[id_map[2]]<<endl;
+#endif
 		bool valid = verify(ans, result_col_num, query_graph, data_graph);
 		if(!valid)
 		{
-			cout<<"a result is invalid!"<<endl;
+#ifdef DEBUG
+			//cout<<"a result is invalid!"<<endl;
+#endif
 			continue;
 		}
 
