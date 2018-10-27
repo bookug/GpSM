@@ -1145,7 +1145,7 @@ table_kernel(unsigned* d_candidate, unsigned* d_result, unsigned result_row_num,
 	}
 	if(idx < size)
 	{
-		unsigned mv = d_candidate[idx+base+2*array_num+1];
+		unsigned mv = d_candidate[idx+base];
 		d_result[2*(base+idx)] = mu;
 		d_result[2*(base+idx)+1] = mv;
 	}
@@ -1313,7 +1313,6 @@ expand_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsi
 	/*int group = t / 32;*/
 	/*int idx = t % 32;*/
 	int group = t >> 5;
-    /*printf("group: %d\n", group);*/
 	int idx = t & 0x1f;
 	if(group >= result_row_num)
 	{
@@ -1447,31 +1446,12 @@ Match::kernel_expand(unsigned* d_candidate, unsigned*& d_result, unsigned& resul
 	unsigned* d_count = NULL;
 	checkCudaErrors(cudaMalloc(&d_count, sizeof(unsigned)*(result_row_num+1)));
 	expand_kernel<<<(result_row_num*32+1023)/1024,1024>>>(d_candidate, d_result, d_count, result_row_num, result_col_num, pos, array_num);
-	checkCudaErrors(cudaGetLastError());
 	cudaDeviceSynchronize();
-	checkCudaErrors(cudaGetLastError());
-
-    unsigned* t_count = new unsigned[result_row_num];
-	cudaMemcpy(t_count, d_count, sizeof(unsigned)*(result_row_num), cudaMemcpyDeviceToHost);
-    cout<<"check count: "<<endl;
-    for(int i = 0; i < result_row_num; ++i)
-    {
-        cout<<t_count[i]<<" ";
-    }cout<<endl;
 	
 	//prefix sum to find position
 	thrust::device_ptr<unsigned> dev_ptr(d_count);
 	unsigned sum;
 	thrust::exclusive_scan(dev_ptr, dev_ptr+result_row_num+1, dev_ptr);
-
-    unsigned* h_count = new unsigned[result_row_num+1];
-	cudaMemcpy(h_count, d_count, sizeof(unsigned)*(result_row_num+1), cudaMemcpyDeviceToHost);
-    cout<<"check count after scan: "<<endl;
-    for(int i = 0; i < result_row_num+1; ++i)
-    {
-        cout<<h_count[i]<<" ";
-    }cout<<endl;
-
 	checkCudaErrors(cudaGetLastError());
 	cudaMemcpy(&sum, d_count+result_row_num, sizeof(unsigned), cudaMemcpyDeviceToHost);
 	if(sum == 0)
@@ -1497,6 +1477,17 @@ Match::kernel_expand(unsigned* d_candidate, unsigned*& d_result, unsigned& resul
 	result_col_num++;
 }
 
+//TODO: join must occur via edges, otherwise it will be complicated and costly
+//(need to copy the whole candidates for each row)
+//TODO: for subtraction, read from begin to end for all threads to scan and set to 0
+//TODO: more operations can be optimized using Load Balance Strategy, like read from CSV, intersection, subtraction
+//
+//alloc/free of small pieces memory on GPU is costly due to locks!
+//A better strategy is to alloc a given amount first for each row(combined into a big array), 
+//the state are all set to 1 first, and long list needs to be allocated again!
+//
+//TODO: assign big array for join, 64*4B for each row? do filter and compact using warp for a row?
+//set to MAXIMUM and set hash[MAXIMUM]=0 to avoid warp divergency
 bool
 Match::JoinCandidateEdges(unsigned** d_candidate_edge, unsigned* d_candidate_edge_num, unsigned** d_candidate_edge_reverse, unsigned* d_candidate_edge_num_reverse, unsigned*& d_result, unsigned& result_row_num, unsigned& result_col_num)
 {
@@ -1616,11 +1607,7 @@ Match::JoinCandidateEdges(unsigned** d_candidate_edge, unsigned* d_candidate_edg
 			//both u and v are connected, then select u as the linking point and check v
 			kernel_join(d_candidate, d_result, result_row_num, result_col_num, this->id2pos[u], this->id2pos[v], array_num);
 		}
-
-        visited_vertices[u] = true;
-        visited_vertices[v] = true;
-        visited_edges[next_minx] = true;
-		//BETTER:cache the row in shared memory
+		//TODO:cache the row in shared memory
 		if(result_row_num == 0)
 		{
 			return false;
@@ -1824,12 +1811,6 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 	success = JoinCandidateEdges(d_candidate_edge, d_candidate_edge_num, d_candidate_edge_reverse, d_candidate_edge_num_reverse, d_result, result_row_num, result_col_num);
 	checkCudaErrors(cudaGetLastError());
 	cout<<"candidate edges joined"<<endl;
-#ifdef DEBUG
-    for(int i = 0; i < qsize; ++i)
-    {
-        cout<<this->id2pos[i]<<" ";
-    }cout<<endl;
-#endif
 
 	long t8 = Util::get_cur_time();
 	//transfer the result to CPU and output
