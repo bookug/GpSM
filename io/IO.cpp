@@ -143,7 +143,7 @@ IO::output()
 
 //BETTER: move the process of verifying to the GPU(full CSR of the data graph is required)
 bool
-IO::verify(unsigned* ans, unsigned num, Graph* query, Graph* data)
+IO::verify(int* id_map, unsigned* ans, unsigned num, Graph* query, Graph* data)
 {
 	//check isomorphism
 	set<unsigned> uniq_set;
@@ -166,8 +166,8 @@ IO::verify(unsigned* ans, unsigned num, Graph* query, Graph* data)
 		vector<Neighbor>& in = qvlist[i].in;
 		for(int j = 0; j < in.size(); ++j)
 		{
-			int to = ans[i];
-			int from = ans[in[j].vid];
+			int to = ans[id_map[i]];
+			int from = ans[id_map[in[j].vid]];
 			int label = in[j].elb;
 			bool flag = data->isEdgeContained(from, to, label);
 			if(!flag)
@@ -182,7 +182,7 @@ IO::verify(unsigned* ans, unsigned num, Graph* query, Graph* data)
 bool
 IO::output(unsigned* final_result, unsigned result_row_num, unsigned result_col_num, int* id_map, Graph* query_graph, Graph* data_graph)
 {
-	//cout<<"result: "<<result_row_num<<" "<<result_col_num<<endl;
+//    cout<<"result: "<<result_row_num<<" "<<result_col_num<<endl;
 	int i, j, k;
 	for(i = 0; i < result_row_num; ++i)
 	{
@@ -190,7 +190,7 @@ IO::output(unsigned* final_result, unsigned result_row_num, unsigned result_col_
 #ifdef DEBUG
         //cout<<ans[id_map[0]]<<" "<<ans[id_map[1]]<<" "<<ans[id_map[2]]<<endl;
 #endif
-		bool valid = verify(ans, result_col_num, query_graph, data_graph);
+		bool valid = verify(id_map, ans, result_col_num, query_graph, data_graph);
 		if(!valid)
 		{
 #ifdef DEBUG

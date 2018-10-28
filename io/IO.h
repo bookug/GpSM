@@ -35,7 +35,7 @@ private:
 	FILE* dfp;
 	//output file pointer
 	FILE* ofp;
-	bool verify(unsigned* ans, unsigned num, Graph* query_graph, Graph* data_graph);
+	bool verify(int* id_map, unsigned* ans, unsigned num, Graph* query_graph, Graph* data_graph);
 };
 
 #endif

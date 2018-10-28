@@ -25,3 +25,6 @@ run.exe
 # tag files
 tags
 
+# breakpoints of gdb
+*.bp
+
