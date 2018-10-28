@@ -1,3 +1,6 @@
+# To generate function list in Vim, use
+# ctags --langmap=c++:+.cu *
+
 #默认情况下，L1是被开启的，-Xptxas -dlcm=cg可以用来禁用L1
 
 #compile parameters

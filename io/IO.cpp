@@ -182,7 +182,7 @@ IO::verify(unsigned* ans, unsigned num, Graph* query, Graph* data)
 bool
 IO::output(unsigned* final_result, unsigned result_row_num, unsigned result_col_num, int* id_map, Graph* query_graph, Graph* data_graph)
 {
-	cout<<"result: "<<result_row_num<<" "<<result_col_num<<endl;
+	//cout<<"result: "<<result_row_num<<" "<<result_col_num<<endl;
 	int i, j, k;
 	for(i = 0; i < result_row_num; ++i)
 	{

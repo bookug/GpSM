@@ -22,3 +22,6 @@ run.exe
 *.exe 
 *.bin
 
+# tag files
+tags
+

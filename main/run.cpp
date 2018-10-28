@@ -67,7 +67,7 @@ main(int argc, const char * argv[])
 		}
 		//cout<<"now to print the data graph"<<endl;
 		/*getchar();*/
-		//data_graph->printGraph();
+        //data_graph->printGraph();
 		/*getchar();*/
 		//NOTICE: we just compare the matching time(include the communication with GPU)
 		for(i = 0; i < qnum; ++i)

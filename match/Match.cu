@@ -932,6 +932,8 @@ count_kernel(unsigned* d_data_row_offset, unsigned* d_data_column_index, bool* d
 	//REFERENCE: https://blog.csdn.net/bruce_0712/article/details/64926471
 	for(int offset = 16; offset > 0; offset >>= 1)
 	{
+        //NOTICE: for reduce sum this is ok, because each ele out of bound will send its value to the lower region before it becomes dirty
+        //However, in prefix-sum it will cause problem
 		count += __shfl_down(count, offset);
 	}
 	if(idx == 0)
@@ -990,22 +992,27 @@ examine_kernel(unsigned* d_data_row_offset, unsigned* d_data_column_index, bool*
 	for(int j = 0; j < loop; ++j, base+=32)
 	{
 		mv = d_data_column_index[begin+idx+base];
+        //NOTICE: here an implicit transformation will occur, false to 0, and true to 1
+        //the advantage is that we do not need to write a if-else branch here
 		pred = d_candidate_set[dsize*v+mv];
 		presum = pred;
 		//BETTER: extract into a device function
-		//prefix sum in a warp
-		for(unsigned stride = 1; stride <= idx; stride <<= 1)
+		//prefix sum in a warp to find positions
+		for(unsigned stride = 1; stride < 32; stride <<= 1)
 		{
-			presum += __shfl_up(presum, stride);
+            if(idx >= stride)
+            {
+                presum += __shfl_up(presum, stride);
+            }
 		}
 		unsigned total = __shfl(presum, 31);  //broadcast to all threads in the warp
 		//transform inclusive prefixSum to exclusive prefixSum
 		presum = __shfl_up(presum, 1);
 		//NOTICE: for the first element, the original presum value is copied
-		if(idx == 0)
-		{
-			presum = 0;
-		}
+        if(idx == 0)
+        {
+            presum = 0;
+        }
 		//write to corresponding position
 		//NOTICE: warp divergence exists(even we use compact, the divergence also exists in the compact operation)
 		if(pred == 1)
@@ -1022,17 +1029,24 @@ examine_kernel(unsigned* d_data_row_offset, unsigned* d_data_column_index, bool*
 		presum = pred;
 	}
 	//prefix sum in a warp
-	for(unsigned stride = 1; stride <= idx; stride <<= 1)
+    for(unsigned stride = 1; stride < 32; stride <<= 1)
+    //WARN: the usage below is totally wrong and fragile
+	/*for(unsigned stride = 1; stride <= idx; stride <<= 1)*/
 	{
-		presum += __shfl_up(presum, stride);
+        //WARN: below is wrong due to the unbound area, which will copy itself instead of using 0
+		/*presum += __shfl_up(presum, stride);*/
+        if(idx >= stride)
+        {
+            presum += __shfl_up(presum, stride);
+        }
 	}
 	//transform inclusive prefixSum to exclusive prefixSum
 	presum = __shfl_up(presum, 1);
 	//NOTICE: for the first element, the original presum value is copied
-	if(idx == 0)
-	{
-		presum = 0;
-	}
+    if(idx == 0)
+    {
+        presum = 0;
+    }
 	//write to corresponding position
 	//NOTICE: warp divergence exists(even we use compact, the divergence also exists in the compact operation)
 	if(pred == 1)
@@ -1176,6 +1190,7 @@ join_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsign
 	size = size & 0x1f;
 
 	unsigned valid_mu = 0;
+    unsigned tmp = 0;
 	unsigned base = 0;
 	for(int j = 0; j < loop; ++j, base+=32)
 	{
@@ -1184,12 +1199,13 @@ join_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsign
 		{
 			valid_mu = 1;
 		}
-		if(__any(valid_mu) == 1)
+        tmp = __any(valid_mu);
+		if(tmp == 1)
 		{
 			break;
 		}
 	}
-	if(valid_mu == 0 && idx < size)
+	if(tmp == 0 && idx < size)
 	{
 		unsigned cand = d_candidate[idx+base];
 		if(cand == mu)
@@ -1197,25 +1213,25 @@ join_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsign
 			valid_mu = 1;
 		}
 	}
+
+    tmp = __any(valid_mu);
+	if(tmp == 0)   //mu not found in candidate edges
+	{
+		d_count[group] = 0;
+		return; 
+	}
 	
 	//find the index of element mu
-	int idx_mu = __ballot(valid_mu);   //only one 1 in this situation
+	unsigned idx_mu = __ballot(valid_mu);   //only one 1 in this situation
 	//get the idx for each thread
 	//n&(-n) to get the maxium num(which is 2's power), which can divide n (just like 10000..)
 	//it is ok to add a log2() function to get the idx
-	idx_mu = idx_mu & (-idx_mu);
+	/*idx_mu = idx_mu & (-idx_mu);*/
 	//NOTICE: log() is a function defined in host stack, which can not be used in cuda code
 	/*idx_mu = log(idx_mu)/log(2.0);*/
 	//There are two types of log2() in cuda math functions: float and double
 	//not precise but faster:     http://blog.sina.com.cn/s/blog_4c88d09a0100l4mo.html
 	idx_mu = log2((double)idx_mu);
-
-	valid_mu = __any(valid_mu);
-	if(valid_mu == 0)
-	{
-		d_count[group] = 0;
-		return; 
-	}
 
 	//find mv in adjs of mu using a warp
 	unsigned valid_mv = 0;
@@ -1233,12 +1249,13 @@ join_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsign
 		{
 			valid_mv = 1;
 		}
-		if(__any(valid_mv) == 1)
+        tmp = __any(valid_mv);
+		if(tmp == 1)
 		{
 			break;
 		}
 	}
-	if(valid_mv == 0 && idx < size)
+	if(tmp == 0 && idx < size)
 	{
 		unsigned cand = d_candidate[idx+base];
 		if(cand == mv)
@@ -1246,11 +1263,11 @@ join_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsign
 			valid_mv = 1;
 		}
 	}
-	valid_mv = __any(valid_mv);
+	tmp = __any(valid_mv);
 
 	if(idx == 0)
 	{
-		d_count[group] = valid_mv;
+		d_count[group] = tmp;
 	}
 }
 
@@ -1332,6 +1349,7 @@ expand_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsi
 
 	unsigned valid_mu = 0;
 	unsigned base = 0;
+    unsigned tmp = 0;
 	for(int j = 0; j < loop; ++j, base+=32)
 	{
 		unsigned cand = d_candidate[idx+base];
@@ -1339,12 +1357,13 @@ expand_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsi
 		{
 			valid_mu = 1;
 		}
-		if(__any(valid_mu) == 1)
+        tmp = __any(valid_mu);
+		if(tmp == 1)
 		{
 			break;
 		}
 	}
-	if(valid_mu == 0 && idx < size)
+	if(tmp == 0 && idx < size)
 	{
 		unsigned cand = d_candidate[idx+base];
 		if(cand == mu)
@@ -1358,9 +1377,18 @@ expand_kernel(unsigned* d_candidate, unsigned* d_result, unsigned* d_count, unsi
 		d_count[group] = 0;
 		return; 
 	}
+    //NOTICE: we can not set valid_mu = __any(valid_mu) here, otherwise the later __ballot() will be wrong
+
 	//find the index of element mu
-	int idx_mu = __ballot(valid_mu);   //only one 1 in this situation
-	idx_mu = idx_mu & (-idx_mu);
+    //NOTICE: int can not be used here, because the return value of __ballot may be 1<<31
+    //(which is 2147483648, exceeding the maximum integer value)
+	unsigned idx_mu = __ballot(valid_mu);   //only one 1 in this situation
+    //NOTICE: below is just used to extract the least significant bit which is 1
+	/*idx_mu = idx_mu & (-idx_mu);*/
+    /*if(idx_mu == 0)*/
+    /*{*/
+        /*printf("error: %d\n", tmp);*/
+    /*}*/
 	idx_mu = log2((double)idx_mu);
 	d_count[group] = d_candidate[array_num+idx_mu+1] - d_candidate[array_num+idx_mu];
 	//BETTER: check isomorphism here using a warp, better to use shared memory
@@ -1378,7 +1406,7 @@ link_kernel(unsigned* d_result, unsigned* d_result_new, unsigned* d_count, unsig
 	{
 		return; 
 	}
-	if(d_count[group] == d_count[group+1])  //this is a valid result
+	if(d_count[group] == d_count[group+1])  //this is a invalid result
 	{
 		return; 
 	}
@@ -1392,6 +1420,7 @@ link_kernel(unsigned* d_result, unsigned* d_result_new, unsigned* d_count, unsig
 	size = size & 0x1f;
 
 	unsigned valid_mu = 0;
+    unsigned tmp = 0;
 	unsigned base = 0;
 	for(int j = 0; j < loop; ++j, base+=32)
 	{
@@ -1400,12 +1429,13 @@ link_kernel(unsigned* d_result, unsigned* d_result_new, unsigned* d_count, unsig
 		{
 			valid_mu = 1;
 		}
-		if(__any(valid_mu) == 1)
+        tmp = __any(valid_mu);
+		if(tmp == 1)
 		{
 			break;
 		}
 	}
-	if(valid_mu == 0 && idx < size)
+	if(tmp == 0 && idx < size)
 	{
 		unsigned cand = d_candidate[idx+base];
 		if(cand == mu)
@@ -1413,9 +1443,10 @@ link_kernel(unsigned* d_result, unsigned* d_result_new, unsigned* d_count, unsig
 			valid_mu = 1;
 		}
 	}
+    //we guarantee that mu and some mv must be found here, because the case that no result exists has been judged at the beginning
 	
-	int idx_mu = __ballot(valid_mu);   //only one 1 in this situation
-	idx_mu = idx_mu & (-idx_mu);
+	unsigned idx_mu = __ballot(valid_mu);   //only one 1 in this situation
+	/*idx_mu = idx_mu & (-idx_mu);*/
 	idx_mu = log2((double)idx_mu);
 
 	//find mv in adjs of mu using a warp
@@ -1653,6 +1684,19 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 #endif
 	checkCudaErrors(cudaGetLastError());
 
+    //to find an specific edge in data graph
+    //1 0
+    /*int begin = this->data->undirected_row_offset[1], end = this->data->undirected_row_offset[2];*/
+    /*for(int i = begin; i < end; ++i)*/
+    /*{*/
+        /*int ele = this->data->undirected_column_index[i];*/
+        /*if(ele == 0)*/
+        /*{*/
+            /*cout<<"found !!!"<<endl;*/
+            /*break;*/
+        /*}*/
+    /*}*/
+
 	int qsize = this->query->vertex_num;
 	int dsize = this->data->vertex_num;
 	//NOTICE: an undirected edge is kept twice in the CSR format, but we only use one here
@@ -1701,21 +1745,24 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 
 #ifdef DEBUG
 	//check candidates
-	/*bool* h_candidate_set = new bool[sizeof(bool)*qsize*dsize];*/
-	/*cudaMemcpy(h_candidate_set, d_candidate_set, sizeof(bool)*qsize*dsize, cudaMemcpyDeviceToHost);*/
-	/*cout<<"check candidate vertices"<<endl;*/
-	/*for(int i = 0; i < qsize; ++i)*/
-	/*{*/
-		/*for(int j = 0; j < dsize; ++j)*/
-		/*{*/
-			/*[>cout<<h_candidate_set[i*dsize+j]<<" ";<]*/
-            /*if(h_candidate_set[i*dsize+j])*/
-            /*{*/
-                /*cout<<j<<" ";*/
-            /*}*/
-		/*}*/
-		/*cout<<endl;*/
-	/*}*/
+    bool* h_candidate_set = new bool[sizeof(bool)*qsize*dsize];
+    cudaMemcpy(h_candidate_set, d_candidate_set, sizeof(bool)*qsize*dsize, cudaMemcpyDeviceToHost);
+    cout<<"check candidate vertices"<<endl;
+    /*if(h_candidate_set[2*dsize+0])*/
+    /*{*/
+        /*cout<<"error!!!"<<endl;*/
+    /*}*/
+    for(int i = 0; i < qsize; ++i)
+    {
+        for(int j = 0; j < dsize; ++j)
+        {
+            if(h_candidate_set[i*dsize+j])
+            {
+                cout<<j<<" ";
+            }
+        }
+        cout<<endl;
+    }
 #endif
 
 	//refine the candidate vertices recursively
@@ -1732,20 +1779,19 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 	}
 
 #ifdef DEBUG
-	/*cudaMemcpy(h_candidate_set, d_candidate_set, sizeof(bool)*qsize*dsize, cudaMemcpyDeviceToHost);*/
-	/*cout<<"check refined candidate vertices"<<endl;*/
-	/*for(int i = 0; i < qsize; ++i)*/
-	/*{*/
-		/*for(int j = 0; j < dsize; ++j)*/
-		/*{*/
-			/*[>cout<<h_candidate_set[i*dsize+j]<<" ";<]*/
-            /*if(h_candidate_set[i*dsize+j])*/
-            /*{*/
-                /*cout<<j<<" ";*/
-            /*}*/
-		/*}*/
-		/*cout<<endl;*/
-	/*}*/
+    cudaMemcpy(h_candidate_set, d_candidate_set, sizeof(bool)*qsize*dsize, cudaMemcpyDeviceToHost);
+    cout<<"check refined candidate vertices"<<endl;
+    for(int i = 0; i < qsize; ++i)
+    {
+        for(int j = 0; j < dsize; ++j)
+        {
+            if(h_candidate_set[i*dsize+j])
+            {
+                cout<<j<<" ";
+            }
+        }
+        cout<<endl;
+    }
 #endif
 
 	unsigned** d_candidate_edge = NULL;
@@ -1758,36 +1804,37 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 	checkCudaErrors(cudaGetLastError());
 	cout<<"candidate edges found"<<endl;
 
+    //TODO: check edge 0-8189 corresponding to 2-1 in query graph
 #ifdef DEBUG
-	/*cout<<"check candidate edges"<<endl;*/
-	/*unsigned* h_candidate_edge_num = new unsigned[this->edge_num];*/
-	/*unsigned** h_candidate_edge = new unsigned*[this->edge_num];*/
-	/*cudaMemcpy(h_candidate_edge_num, d_candidate_edge_num, sizeof(unsigned)*this->edge_num, cudaMemcpyDeviceToHost);*/
-	/*cudaMemcpy(h_candidate_edge, d_candidate_edge, sizeof(unsigned*)*this->edge_num, cudaMemcpyDeviceToHost);*/
-	/*for(int i = 0; i < this->edge_num; ++i)*/
-	/*{*/
-		/*cout<<"check edge: "<<edge_from[i]<<" "<<edge_to[i]<<" "<<h_candidate_edge_num[i]<<endl;*/
-		/*unsigned num = h_candidate_edge_num[i];*/
-		/*unsigned* count = new unsigned[2*num+1];*/
-		/*cudaMemcpy(count, h_candidate_edge[i], sizeof(unsigned)*(2*num+1), cudaMemcpyDeviceToHost);*/
-		/*unsigned sum = count[2*num];*/
-		/*unsigned* tmp = new unsigned[sum];*/
-		/*cudaMemcpy(tmp, h_candidate_edge[i]+2*num+1, sizeof(unsigned)*sum, cudaMemcpyDeviceToHost);*/
-		/*for(int j = 0; j < num; ++j)*/
-		/*{*/
-			/*cout<<count[j]<<" ";*/
-		/*}cout<<endl;*/
-		/*for(int j = num; j < 2*num+1; ++j)*/
-		/*{*/
-			/*cout<<count[j]<<" ";*/
-		/*}cout<<endl;*/
-		/*for(int j = 0; j < sum; ++j)*/
-		/*{*/
-			/*cout<<tmp[j]<<" ";*/
-		/*}cout<<endl;*/
-		/*delete[] count;*/
-		/*delete[] tmp;*/
-	/*}*/
+    cout<<"check candidate edges"<<endl;
+    unsigned* h_candidate_edge_num = new unsigned[this->edge_num];
+    unsigned** h_candidate_edge = new unsigned*[this->edge_num];
+    cudaMemcpy(h_candidate_edge_num, d_candidate_edge_num, sizeof(unsigned)*this->edge_num, cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_candidate_edge, d_candidate_edge, sizeof(unsigned*)*this->edge_num, cudaMemcpyDeviceToHost);
+    for(int i = 0; i < this->edge_num; ++i)
+    {
+        cout<<"check edge: "<<edge_from[i]<<" "<<edge_to[i]<<" "<<h_candidate_edge_num[i]<<endl;
+        unsigned num = h_candidate_edge_num[i];
+        unsigned* count = new unsigned[2*num+1];
+        cudaMemcpy(count, h_candidate_edge[i], sizeof(unsigned)*(2*num+1), cudaMemcpyDeviceToHost);
+        unsigned sum = count[2*num];
+        unsigned* tmp = new unsigned[sum];
+        cudaMemcpy(tmp, h_candidate_edge[i]+2*num+1, sizeof(unsigned)*sum, cudaMemcpyDeviceToHost);
+        for(int j = 0; j < num; ++j)
+        {
+            cout<<count[j]<<" ";
+        }cout<<endl;
+        for(int j = num; j < 2*num+1; ++j)
+        {
+            cout<<count[j]<<" ";
+        }cout<<endl;
+        for(int j = 0; j < sum; ++j)
+        {
+            cout<<tmp[j]<<" ";
+        }cout<<endl;
+        delete[] count;
+        delete[] tmp;
+    }
 	/*//check the reverse version*/
 	/*cout<<"check reversed candidate edges"<<endl;*/
 	/*unsigned* h_candidate_edge_num_reverse = new unsigned[this->edge_num];*/
