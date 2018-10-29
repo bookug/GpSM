@@ -189,6 +189,10 @@ IO::output(unsigned* final_result, unsigned result_row_num, unsigned result_col_
 		unsigned* ans = final_result + i * result_col_num;
 #ifdef DEBUG
         //cout<<ans[id_map[0]]<<" "<<ans[id_map[1]]<<" "<<ans[id_map[2]]<<endl;
+//        if(ans[0] == 44 && ans[1] == 36 && ans[2] == 2310)
+//        {
+//            cout<<"found in output!"<<endl;
+//        }
 #endif
 		bool valid = verify(id_map, ans, result_col_num, query_graph, data_graph);
 		if(!valid)

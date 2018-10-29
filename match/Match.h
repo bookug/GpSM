@@ -119,6 +119,9 @@ private:
 	void kernel_examine(int u, int v, unsigned d_array_num, bool* d_candidate_set, unsigned* d_tmp);
 	void kernel_join(unsigned* d_candidate, unsigned*& d_result, unsigned& result_row_num, unsigned& result_col_num, unsigned upos, unsigned vpos, unsigned array_num);
 	void kernel_expand(unsigned* d_candidate, unsigned*& d_result, unsigned& result_row_num, unsigned& result_col_num, unsigned pos, unsigned array_num);
+
+    //check functions
+    bool checkEdge(unsigned** d_candidate_edge, unsigned* d_candidate_edge_num, int from, int to, int check_from, int check_to);
 };
 
 #endif

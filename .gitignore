@@ -26,5 +26,5 @@ run.exe
 tags
 
 # breakpoints of gdb
-*.bp
+*.bq
 
