@@ -1000,9 +1000,10 @@ examine_kernel(unsigned* d_data_row_offset, unsigned* d_data_column_index, bool*
 		//prefix sum in a warp to find positions
 		for(unsigned stride = 1; stride < 32; stride <<= 1)
 		{
+            unsigned tmp = __shfl_up(presum, stride);
             if(idx >= stride)
             {
-                presum += __shfl_up(presum, stride);
+                presum += tmp;
             }
 		}
 		unsigned total = __shfl(presum, 31);  //broadcast to all threads in the warp
@@ -1029,16 +1030,23 @@ examine_kernel(unsigned* d_data_row_offset, unsigned* d_data_column_index, bool*
 		presum = pred;
 	}
 	//prefix sum in a warp
-    for(unsigned stride = 1; stride < 32; stride <<= 1)
+    /*for(unsigned stride = 1; stride < 32; stride <<= 1)*/
     //WARN: the usage below is totally wrong and fragile
 	/*for(unsigned stride = 1; stride <= idx; stride <<= 1)*/
+    for(unsigned stride = 1; stride <= size; stride <<= 1)
 	{
-        //WARN: below is wrong due to the unbound area, which will copy itself instead of using 0
-		/*presum += __shfl_up(presum, stride);*/
+        unsigned tmp = __shfl_up(presum, stride);
         if(idx >= stride)
         {
-            presum += __shfl_up(presum, stride);
+            presum += tmp;
         }
+        //WARN: below is wrong due to the unbound area, which will copy itself instead of using 0
+		/*presum += __shfl_up(presum, stride);*/
+        //WARN: below is wrong because the 0-th thread will not do the shuffle operation, and 1-th thread receives no value
+        /*if(idx >= stride)*/
+        /*{*/
+            /*presum += __shfl_up(presum, stride, 32);*/
+        /*}*/
 	}
 	//transform inclusive prefixSum to exclusive prefixSum
 	presum = __shfl_up(presum, 1);
@@ -1749,10 +1757,10 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
     /*bool* h_candidate_set = new bool[sizeof(bool)*qsize*dsize];*/
     /*cudaMemcpy(h_candidate_set, d_candidate_set, sizeof(bool)*qsize*dsize, cudaMemcpyDeviceToHost);*/
     /*cout<<"check candidate vertices"<<endl;*/
-    /*[>if(h_candidate_set[2*dsize+0])<]*/
-    /*[>{<]*/
-        /*[>cout<<"error!!!"<<endl;<]*/
-    /*[>}<]*/
+    /*if(h_candidate_set[2*dsize+0])*/
+    /*{*/
+        /*cout<<"error!!!"<<endl;*/
+    /*}*/
     /*for(int i = 0; i < qsize; ++i)*/
     /*{*/
         /*for(int j = 0; j < dsize; ++j)*/
@@ -1782,6 +1790,10 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 #ifdef DEBUG
     /*cudaMemcpy(h_candidate_set, d_candidate_set, sizeof(bool)*qsize*dsize, cudaMemcpyDeviceToHost);*/
     /*cout<<"check refined candidate vertices"<<endl;*/
+    /*if(h_candidate_set[2*dsize+0])*/
+    /*{*/
+        /*cout<<"error!!!"<<endl;*/
+    /*}*/
     /*for(int i = 0; i < qsize; ++i)*/
     /*{*/
         /*for(int j = 0; j < dsize; ++j)*/
@@ -1814,10 +1826,10 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
     /*for(int i = 0; i < this->edge_num; ++i)*/
     /*{*/
         /*cout<<"check edge: "<<edge_from[i]<<" "<<edge_to[i]<<" "<<h_candidate_edge_num[i]<<endl;*/
-        /*[>if(edge_from[i] != 1 || edge_to[i] != 2)<]*/
-        /*[>{<]*/
-            /*[>continue;<]*/
-        /*[>}<]*/
+        /*if(edge_from[i] != 1 || edge_to[i] != 2)*/
+        /*{*/
+            /*continue;*/
+        /*}*/
         /*unsigned num = h_candidate_edge_num[i];*/
         /*unsigned* count = new unsigned[2*num+1];*/
         /*cudaMemcpy(count, h_candidate_edge[i], sizeof(unsigned)*(2*num+1), cudaMemcpyDeviceToHost);*/
