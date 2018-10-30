@@ -1663,6 +1663,7 @@ Match::JoinCandidateEdges(unsigned** d_candidate_edge, unsigned* d_candidate_edg
 		array_num = h_candidate_edge_num[next_minx];
 		//each warp deals with a row
 		int u = this->edge_from[next_minx], v = this->edge_to[next_minx];
+        cout<<"next to join: "<<u<<" "<<v<<endl;
 		if(expand_mode)
 		{
 			int upos = -1, vpos = -1;
@@ -1844,7 +1845,7 @@ Match::match(IO& io, unsigned*& final_result, unsigned& result_row_num, unsigned
 
 #ifdef DEBUG
     cout<<"check candidate edges"<<endl;
-    bool flag = checkEdge(d_candidate_edge, d_candidate_edge_num, 1, 2, 99, 6704);
+    bool flag = checkEdge(d_candidate_edge, d_candidate_edge_num, 1, 2, 42153, 47555);
     if(!flag)
     {
         cout<<"error !!!"<<endl;

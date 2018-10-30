@@ -70,9 +70,9 @@ main(int argc, const char * argv[])
         //data_graph->printGraph();
 		/*getchar();*/
 		//NOTICE: we just compare the matching time(include the communication with GPU)
+        long start = Util::get_cur_time();
 		for(i = 0; i < qnum; ++i)
 		{
-			long start = Util::get_cur_time();
 			Match m(query_list[i], data_graph);
 			io.output(i);
 		/*getchar();*/
@@ -91,9 +91,9 @@ main(int argc, const char * argv[])
 		//We can use cudaDeviceReset() to reset the device with process to release memory, but this will introduce 
 		//more initialization time.
 		//cudaDeviceReset();
-			long end = Util::get_cur_time();
-			cerr<<"match used: "<<(end-start)<<"ms"<<endl;
 		}
+        long end = Util::get_cur_time();
+        cerr<<"match used: "<<(end-start)<<"ms"<<endl;
 		delete data_graph;
 	}
 
