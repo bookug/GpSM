@@ -41,3 +41,10 @@ subgraph and graph isomorphisms",
 further enhancing it by ignoring low-connectivity vertices 
 which have little or no effect of decreasing intermediate results during filtering.
 
+---
+
+When a directed graph with edge labels is viewed as an undirected graph without edge labels, many parallel edges may arise as prblems.
+(We believe there are no parallel edges in the original directed graph with edge labels)
+
+TODO: better to consider this situation to ensure the correctness
+

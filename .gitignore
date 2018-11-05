@@ -28,3 +28,6 @@ tags
 # breakpoints of gdb
 *.bq
 
+*.log
+*.tmp
+

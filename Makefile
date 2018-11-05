@@ -9,12 +9,12 @@ CC = g++
 #NVCC = nvcc -arch=sm_35 -lcudadevrt -rdc=true -G --ptxas-options=-v
 NVCC = nvcc -arch=sm_35 -lcudadevrt -rdc=true -G
 #NVCC = nvcc -arch=sm_35 -lcudadevrt -rdc=true -G -Xcompiler -rdynamic -lineinfo
-CFLAGS = -DDEBUG -g -c #-fprofile-arcs -ftest-coverage -coverage #-pg
-EXEFLAG = -DDEBUG -g #-fprofile-arcs -ftest-coverage -coverage #-pg #-O2
+#CFLAGS = -DDEBUG -g -c #-fprofile-arcs -ftest-coverage -coverage #-pg
+#EXEFLAG = -DDEBUG -g #-fprofile-arcs -ftest-coverage -coverage #-pg #-O2
 #NVCC = nvcc -arch=sm_35 -lcudadevrt -rdc=true 
 #CFLAGS = -c #-fprofile-arcs -ftest-coverage -coverage #-pg
-#CFLAGS = -c -O2 #-fprofile-arcs -ftest-coverage -coverage #-pg
-#EXEFLAG = -O2 #-fprofile-arcs -ftest-coverage -coverage #-pg #-O2
+CFLAGS = -c -O2 #-fprofile-arcs -ftest-coverage -coverage #-pg
+EXEFLAG = -O2 #-fprofile-arcs -ftest-coverage -coverage #-pg #-O2
 # TODO: try -fno-builtin-strlen -funswitch-loops -finline-functions
 
 #add -lreadline -ltermcap if using readline or objs contain readline
@@ -23,10 +23,10 @@ library = #-lgcov -coverage
 objdir = ./objs/
 objfile = $(objdir)Util.o $(objdir)IO.o $(objdir)Match.o $(objdir)Graph.o
 
-all: run.exe
+all: GpSM.exe
 
-run.exe: $(objfile) main/run.cpp
-	$(NVCC) $(EXEFLAG) -o run.exe main/run.cpp $(objfile)
+GpSM.exe: $(objfile) main/run.cpp
+	$(NVCC) $(EXEFLAG) -o GpSM.exe main/run.cpp $(objfile)
 
 $(objdir)Util.o: util/Util.cpp util/Util.h
 	$(CC) $(CFLAGS) util/Util.cpp -o $(objdir)Util.o

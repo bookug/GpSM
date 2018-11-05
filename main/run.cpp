@@ -93,7 +93,7 @@ main(int argc, const char * argv[])
 		//cudaDeviceReset();
 		}
         long end = Util::get_cur_time();
-        cerr<<"match used: "<<(end-start)<<"ms"<<endl;
+        cerr<<"match used: "<<(end-start)<<" ms"<<endl;
 		delete data_graph;
 	}
 
